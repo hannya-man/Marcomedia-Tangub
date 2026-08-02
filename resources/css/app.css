@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================================================================
+   SHADCN/UI-INSPIRED DESIGN TOKENS
+   shadcn/ui itself is a React component library, so it can't be dropped
+   into a Blade app directly — what's adopted here is its design language:
+   a neutral base palette + one accent color, HSL tokens for easy theming,
+   tighter corner radii, subtle shadows, and consistent focus rings. The
+   Marcomedia brand colors (teal/gold) stay as the accent — shadcn is a
+   system you theme, not a fixed color palette.
+   ===================================================================== */
+:root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 12%;
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 14% 45%;
+    --border: 214 15% 89%;
+    --input: 214 15% 89%;
+    --primary: 191 67% 34%;        /* the app's teal "brand" color, as an HSL token */
+    --primary-foreground: 0 0% 100%;
+    --ring: 191 67% 34%;
+    --radius: 0.625rem;
+}
+.dark {
+    --background: 222 25% 8%;
+    --foreground: 210 20% 96%;
+    --card: 222 22% 12%;
+    --card-foreground: 210 20% 96%;
+    --muted: 222 18% 18%;
+    --muted-foreground: 215 15% 65%;
+    --border: 222 15% 24%;
+    --input: 222 15% 24%;
+    --primary: 191 60% 45%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 191 60% 45%;
+}
+
+body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+/* ===== Smooth dark mode transition =====
+   Toggling .dark used to snap every color instantly. This fades all
+   color-related properties across the whole page at once, so switching
+   themes feels like a cross-fade instead of a flash. Deliberately scoped
+   to color/background/border/shadow only (not transform/layout props),
+   so it never fights with the more specific button/select/card animations
+   declared further down — those still fully control their own transforms. */
+*, *::before, *::after {
+    transition-property: background-color, border-color, color, box-shadow, fill, stroke;
+    transition-timing-function: ease;
+    transition-duration: 300ms;
+}
+
+/* Global dark-mode fix for form fields — applies everywhere regardless
+   of whether a given input has its own dark: classes, so text boxes
+   are never invisible/unreadable in dark mode. */
+.dark input:not([type=checkbox]):not([type=radio]),
+.dark select,
+.dark textarea {
+    background-color: #1e293b;
+    border-color: #475569;
+    color: #f1f5f9;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+    color: #94a3b8;
+}
+.dark select option {
+    background-color: #1e293b;
+    color: #f1f5f9;
+}
+
+/* ===== Flat 2.0 (Semi-Flat) interaction polish ===== */
+a, button {
+    transition: background-color 150ms ease, border-color 150ms ease,
+                box-shadow 150ms ease, transform 100ms ease, color 150ms ease, opacity 150ms ease;
+}
+a:active:not(:disabled), button:active:not(:disabled) {
+    transform: scale(0.97);
+}
+button:disabled, a[disabled] { transform: none; }
+
+/* shadcn-style focus ring: a thin, offset ring instead of a heavy glow */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid hsl(var(--ring) / 0.5);
+    outline-offset: 2px;
+}
+
+/* Smooth, responsive select boxes everywhere — subtle lift + glow
+   on hover/focus so choosing an option feels alive, not static.
+   border-radius is forced here so no dropdown anywhere can end up
+   sharp-cornered even if a page's markup forgets a rounded-* class. */
+select {
+    border-radius: 0.75rem !important;
+    transition: border-color 180ms ease, box-shadow 180ms ease,
+                transform 120ms ease, background-color 180ms ease;
+    cursor: pointer;
+}
+select:hover {
+    border-color: hsl(var(--primary));
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.15);
+}
+select:focus {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px hsl(var(--primary) / 0.2);
+}
+select:active {
+    transform: translateY(0) scale(0.99);
+}
+
+/* Same guarantee for the custom dropdown menus (profile menu, notification
+   bell) — always soft-cornered, never sharp. */
+[x-show="menuOpen"], [x-show="open"] {
+    border-radius: 0.875rem !important;
+}
+
+/* Soft elevation lift on cards, shadcn-style subtle shadow instead of a
+   heavy default — and now transitions background-color too, so cards
+   fade smoothly on dark mode toggle instead of snapping. */
+.rounded-xl.border {
+    border-radius: var(--radius);
+    transition: box-shadow 200ms ease, transform 200ms ease, border-color 150ms ease, background-color 300ms ease;
+}
+.rounded-xl.border:hover {
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+.dark .rounded-xl.border:hover {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+/* Page content fades/slides in on load */
+main {
+    animation: fadeInUp 300ms ease;
+}
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Modal pop */
+[x-transition\.scale] { transition: transform 180ms ease, opacity 180ms ease; }
+
+/* Top loading bar — gives page navigation a "refreshing" feel */
+#page-loading-bar {
+    position: fixed; top: 0; left: 0; height: 3px; width: 0%;
+    background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--primary) / 0.7));
+    z-index: 9999; transition: width 250ms ease, opacity 300ms ease;
+}
+
+/* Login card entrance animation */
+.login-card { animation: loginIn 400ms ease; }
+@keyframes loginIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* =====================================================================
+   SMOOTH PAGE-TO-PAGE TRANSITIONS
+   This app is traditional server-rendered Laravel (full page loads on
+   every navigation, no SPA router) — the View Transitions API is the
+   correct native tool for a real cross-fade between two separate page
+   loads. Supported in Chrome/Edge; browsers without support just do a
+   normal navigation with no error, so this is a safe, free enhancement.
+   ===================================================================== */
+@view-transition {
+    navigation: auto;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 220ms;
+    animation-timing-function: ease;
+}
