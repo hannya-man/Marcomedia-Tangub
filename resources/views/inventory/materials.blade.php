@@ -93,19 +93,45 @@
     </div>
 
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 h-fit">
-        <p class="font-medium text-ink dark:text-white mb-2">How this works</p>
+        <p class="font-medium text-ink dark:text-white mb-3">What goes here, and why</p>
+
         <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
+            This page is for the <strong>raw supplies you buy in bulk</strong> and
+            use up making things — not the finished products you sell. A fabric
+            roll, a bottle of sublimation ink, a box of blank trophy plaques.
+            The Inventory page tracks finished shirts by size; this page tracks
+            what those shirts were made <em>from</em>.
+        </p>
+
+        <div class="rounded-lg bg-slate-50 dark:bg-slate-700/40 p-3 mb-3">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Example — what to type in "Add Material"</p>
+            <div class="space-y-2 text-xs">
+                <div>
+                    <p class="font-medium text-ink dark:text-white">Sublimation Poly Fabric - White</p>
+                    <p class="text-slate-500 dark:text-slate-400">Unit: <code class="bg-white dark:bg-slate-800 px-1 rounded">meters</code> · Starting Stock: <code class="bg-white dark:bg-slate-800 px-1 rounded">50</code> · Warn At: <code class="bg-white dark:bg-slate-800 px-1 rounded">10</code></p>
+                </div>
+                <div>
+                    <p class="font-medium text-ink dark:text-white">Sublimation Ink - CMYK Set</p>
+                    <p class="text-slate-500 dark:text-slate-400">Unit: <code class="bg-white dark:bg-slate-800 px-1 rounded">liters</code> · Starting Stock: <code class="bg-white dark:bg-slate-800 px-1 rounded">2</code> · Warn At: <code class="bg-white dark:bg-slate-800 px-1 rounded">0.5</code></p>
+                </div>
+            </div>
+        </div>
+
+        <p class="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Then, on the Inventory page:</p>
+        <ol class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed list-decimal list-inside space-y-1 mb-3">
+            <li>Open "Add Product" and add a size, e.g. <strong>Medium (M)</strong></li>
+            <li>Under that size, click "Add a material" — pick <strong>Fabric</strong>, enter how much one shirt uses, e.g. <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">1.2</code></li>
+            <li>Click "Add a material" again — pick <strong>Ink</strong>, enter e.g. <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">0.05</code></li>
+            <li>A size can list as many materials as it actually needs — most sublimation items need at least fabric and ink together</li>
+        </ol>
+
+        <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
             A material's stock only goes down when you <strong>restock a finished
             size</strong> on the Inventory page (that's when fabric actually gets
-            cut) — not when a shirt is sold off the shelf. Selling just draws
-            down the already-cut finished stock.
-        </p>
-        <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-            To link a size to a material, edit that size's row when adding a
-            product and add each material it uses along with how much one
-            unit consumes (e.g. a Medium shirt = 1.2 meters of fabric AND
-            0.05 liters of ink). Click "Used By" on any material above to
-            see every size currently linked to it.
+            cut and ink actually gets used) — not when a shirt is sold off the
+            shelf. Selling just draws down the already-finished stock. Click
+            "Used By" on any material above to see every size currently
+            linked to it.
         </p>
     </div>
 

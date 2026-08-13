@@ -5,7 +5,6 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\POSController;
 use App\Http\Controllers\InventoryController;
-use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\UserController;
 
 // Breeze's logout (and a few other flows) redirect to '/' when finished.
@@ -68,12 +67,20 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::post('/materials/{material}/restore', [\App\Http\Controllers\MaterialController::class, 'restore'])->name('materials.restore');
         Route::get('/materials/archive', [\App\Http\Controllers\MaterialController::class, 'archive'])->name('materials.archive');
 
+        // Categories — same archive-instead-of-delete pattern as everything else.
+        Route::get('/categories', [\App\Http\Controllers\CategoryController::class, 'index'])->name('inventory.categories');
+        Route::post('/categories', [\App\Http\Controllers\CategoryController::class, 'store'])->name('categories.store');
+        Route::delete('/categories/{category}', [\App\Http\Controllers\CategoryController::class, 'destroy'])->name('categories.destroy');
+        Route::post('/categories/{category}/restore', [\App\Http\Controllers\CategoryController::class, 'restore'])->name('categories.restore');
+        Route::get('/categories/archive', [\App\Http\Controllers\CategoryController::class, 'archive'])->name('categories.archive');
+
         // Sales & Orders — cashiers process and review these day-to-day too, not just admins.
         Route::get('/sales', [POSController::class, 'transactions'])->name('sales.index');
         Route::post('/sales/{sale}/void', [POSController::class, 'void'])->name('sales.void');
         Route::post('/sales/{sale}/complete', [POSController::class, 'complete'])->name('sales.complete');
         Route::patch('/sales/{sale}', [POSController::class, 'update'])->name('sales.update');
         Route::get('/sales-orders/archive', [POSController::class, 'archive'])->name('sales.archive');
+        Route::post('/sales/{sale}/archive', [POSController::class, 'archiveOne'])->name('sales.archiveOne');
         Route::post('/sales/{sale}/restore', [POSController::class, 'restoreSale'])->name('sales.restore');
         // Orders as a standalone concept is retired (see POSController::transactions
         // for why) — only restore stays, so any pre-existing archived Order can
@@ -81,16 +88,6 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::post('/orders/{order}/restore', [POSController::class, 'restoreOrder'])->name('orders.restore');
     });
 
-    // Appointments — admin only now that the photographer role is gone.
-    Route::middleware('role:admin')->group(function () {
-        Route::get('/appointments', [AppointmentController::class, 'index'])->name('appointments.index');
-        Route::get('/appointments/create', [AppointmentController::class, 'create'])->name('appointments.create');
-        Route::post('/appointments', [AppointmentController::class, 'store'])->name('appointments.store');
-        Route::patch('/appointments/{appointment}', [AppointmentController::class, 'update'])->name('appointments.update');
-        Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy'])->name('appointments.destroy'); // archives, doesn't hard-delete
-        Route::get('/appointments/archive', [AppointmentController::class, 'archive'])->name('appointments.archive');
-        Route::post('/appointments/{appointment}/restore', [AppointmentController::class, 'restore'])->name('appointments.restore');
-    });
 });
 
 require __DIR__.'/auth.php'; // from Laravel Breeze/Jetstream, or your own auth scaffolding

@@ -20,11 +20,25 @@
     'onchange' => '',
 ])
 
+@php
+    // Passed as an array of {value, label} pairs instead of a keyed
+    // object — avoids PHP-array-key-type (int vs string) mismatches
+    // turning into JS object-key lookup misses, which was causing the
+    // dropdown to silently fail to reflect the actual selected value.
+    $optionPairs = collect($options)->map(fn ($label, $value) => [
+        'value' => (string) $value,
+        'label' => $label,
+    ])->values()->all();
+@endphp
+
 <div x-data="{
         open: false,
-        value: @js($selected ?? ''),
-        options: @js((object) $options),
-        label() { return this.options[this.value] ?? @js($placeholder); },
+        value: @js((string) ($selected ?? '')),
+        options: @js($optionPairs),
+        label() {
+            const match = this.options.find(o => o.value === this.value);
+            return match ? match.label : @js($placeholder);
+        },
      }"
      @click.outside="open = false"
      class="relative inline-block w-full">
@@ -46,14 +60,14 @@
          x-transition:leave-end="opacity-0 scale-95"
          style="display:none;"
          class="absolute z-50 mt-1.5 w-full min-w-[10rem] overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-md">
-        @foreach($options as $optValue => $optLabel)
+        <template x-for="opt in options" :key="opt.value">
             <button type="button"
-                @click="value = '{{ $optValue }}'; open = false; {!! $onchange !!}"
+                @click="value = opt.value; open = false; {!! $onchange !!}"
                 class="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                :class="value === '{{ $optValue }}' ? 'bg-slate-50 dark:bg-slate-700/60 font-medium' : ''">
-                <i data-lucide="check" class="w-3.5 h-3.5 text-brand-600 flex-shrink-0" :class="value === '{{ $optValue }}' ? 'opacity-100' : 'opacity-0'"></i>
-                <span>{{ $optLabel }}</span>
+                :class="value === opt.value ? 'bg-slate-50 dark:bg-slate-700/60 font-medium' : ''">
+                <i data-lucide="check" class="w-3.5 h-3.5 text-brand-600 flex-shrink-0" :class="value === opt.value ? 'opacity-100' : 'opacity-0'"></i>
+                <span x-text="opt.label"></span>
             </button>
-        @endforeach
+        </template>
     </div>
 </div>

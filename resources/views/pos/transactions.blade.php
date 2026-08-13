@@ -2,7 +2,7 @@
 @section('title', 'Sales')
 
 @section('content')
-<div x-data="{ editingSale: null }">
+<div x-data="{ editingSale: null, confirmingArchiveSale: null }">
 
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
@@ -80,13 +80,18 @@
                         </form>
                         @endif
                         @if(in_array($sale->status, ['pending', 'processing']))
-                        <form method="POST" action="{{ route('sales.void', $sale) }}" class="inline" onsubmit="return confirm('Void this sale and restore stock?')">
+                        <form method="POST" action="{{ route('sales.void', $sale) }}" class="inline mr-1.5" onsubmit="return confirm('Void this sale and restore stock?')">
                             @csrf
                             <button class="inline-flex items-center gap-1 text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg px-2.5 py-1.5">
                                 <i data-lucide="ban" class="w-3 h-3"></i> Void
                             </button>
                         </form>
                         @endif
+                        <button type="button" title="Archive this sale"
+                            @click="confirmingArchiveSale = { id: {{ $sale->id }}, invoice: {{ json_encode($sale->invoice_number) }} }"
+                            class="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700">
+                            <i data-lucide="trash-2" class="w-3 h-3"></i>
+                        </button>
                     </td>
                 </tr>
                 @empty
@@ -131,6 +136,33 @@
             </form>
         </div>
     </div>
+
+    {{-- SHADCN-STYLE ALERT DIALOG — Archive confirmation --}}
+    <div x-show="confirmingArchiveSale !== null" style="display:none;" x-transition.opacity class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" @click.self="confirmingArchiveSale = null">
+        <div x-show="confirmingArchiveSale !== null" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+             class="bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 w-full max-w-md p-6">
+            <p class="text-lg font-semibold text-ink dark:text-white mb-2">Archive this sale?</p>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                <span x-text="confirmingArchiveSale?.invoice"></span> will be moved to the Archive, not permanently deleted — you can restore it from there any time.
+            </p>
+            <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                <button @click="confirmingArchiveSale = null"
+                    class="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-md px-4 py-2">
+                    Cancel
+                </button>
+                <button @click="document.getElementById('archive-sale-form-' + confirmingArchiveSale.id).submit()"
+                    class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md px-4 py-2">
+                    Archive
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @foreach($sales as $sale)
+        <form id="archive-sale-form-{{ $sale->id }}" method="POST" action="{{ route('sales.archiveOne', $sale) }}" class="hidden">
+            @csrf
+        </form>
+    @endforeach
 </div>
 
 <script>

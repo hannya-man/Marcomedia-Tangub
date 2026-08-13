@@ -38,9 +38,6 @@ class DashboardController extends Controller
             ->where('stock_quantity', '>', 0)
             ->count();
         $totalStockItems = ProductVariant::count();
-        $todayAppointmentsCount = \App\Models\Appointment::where('status', '!=', 'archived')
-            ->whereDate('appointment_date', now()->toDateString())
-            ->count();
 
         // Sales trend, last 7 days
         $salesTrend = Sale::selectRaw('DATE(created_at) as date, SUM(total_amount) as total')
@@ -66,12 +63,6 @@ class DashboardController extends Controller
         // Replaces the old hardcoded "Recent Activity" feed with real stock movement history.
         $recentMovements = \App\Models\InventoryMovement::with('variant.product', 'user')
             ->latest('created_at')->limit(6)->get();
-
-        // Replaces the old hardcoded "Upcoming Appointments" panel.
-        $upcomingAppointments = \App\Models\Appointment::where('status', '!=', 'archived')
-            ->where('appointment_date', '>=', now()->toDateString())
-            ->orderBy('appointment_date')->orderBy('appointment_time')
-            ->limit(5)->get();
 
         // Real Weekly / Monthly / Yearly chart data — replaces the old
         // hardcoded placeholder numbers on the Sales Overview chart.
@@ -115,10 +106,8 @@ class DashboardController extends Controller
 
         return view('dashboard.index', compact(
             'todaySales', 'todayTransactions', 'monthSales',
-            'lowStockVariants', 'outOfStockCount', 'lowStockCount',
-            'salesTrend', 'topProducts', 'recentSales',
-            'recentMovements', 'upcomingAppointments',
-            'totalStockItems', 'todayAppointmentsCount', 'chartSets'
+            'lowStockVariants', 'outOfStockCount', 'lowStockCount', 'totalStockItems',
+            'salesTrend', 'topProducts', 'recentSales', 'recentMovements', 'chartSets',
         ));
     }
 }

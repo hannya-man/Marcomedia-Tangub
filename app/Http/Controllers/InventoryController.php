@@ -6,6 +6,7 @@ use App\Models\ProductVariant;
 use App\Models\Category;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 
 class InventoryController extends Controller
 {
@@ -21,9 +22,9 @@ class InventoryController extends Controller
         }
 
         $products = $query->orderBy('name')->paginate(15)->withQueryString();
-        $categories = Category::orderBy('name')->get();
+        $categories = Category::whereNull('archived_at')->orderBy('name')->get();
         $archivedCount = Product::where('status', 'archived')->count();
-        $materials = \App\Models\Material::orderBy('name')->get();
+        $materials = \App\Models\Material::whereNull('archived_at')->orderBy('name')->get();
 
         return view('inventory.index', compact('products', 'categories', 'archivedCount', 'materials'));
     }
@@ -54,7 +55,7 @@ class InventoryController extends Controller
         $request->merge(['variants' => $variantsInput]);
 
         $validated = $request->validate([
-            'category_id' => 'nullable|exists:categories,id',
+            'category_id' => ['nullable', Rule::exists('categories', 'id')->whereNull('archived_at')],
             'new_category_name' => 'nullable|string|max:100',
             'name' => 'required|string|max:150',
             'sku' => 'required|string|max:60|unique:products,sku',
@@ -68,7 +69,7 @@ class InventoryController extends Controller
             'variants.*.price' => 'nullable|numeric|min:0',
             'variants.*.stock_quantity' => 'required_with:variants|integer|min:0',
             'variants.*.low_stock_threshold' => 'nullable|integer|min:0',
-            'variants.*.materials.*.material_id' => 'nullable|exists:materials,id',
+            'variants.*.materials.*.material_id' => ['nullable', Rule::exists('materials', 'id')->whereNull('archived_at')],
             'variants.*.materials.*.quantity_per_unit' => 'nullable|numeric|min:0',
         ]);
 

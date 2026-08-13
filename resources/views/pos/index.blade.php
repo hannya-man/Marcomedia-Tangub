@@ -6,20 +6,37 @@
 
     <!-- Product picker -->
     <div class="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
-        <div class="relative mb-4">
+        <div class="relative mb-3">
             <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
             <input type="text" x-model="search" placeholder="Search product..."
                    class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white text-sm pl-9 pr-3 py-2.5 focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[70vh] overflow-y-auto">
+        {{-- Category filter pills --}}
+        @if($categories->count())
+        <div class="flex gap-2 mb-4 overflow-x-auto pb-1">
+            <button type="button" @click="categoryFilter = ''" :class="categoryFilter === '' ? 'bg-brand-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
+                class="text-xs px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0">All</button>
+            @foreach($categories as $category)
+            <button type="button" @click="categoryFilter = '{{ $category->id }}'" :class="categoryFilter === '{{ $category->id }}' ? 'bg-brand-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
+                class="text-xs px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0">{{ $category->name }}</button>
+            @endforeach
+        </div>
+        @endif
+
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[65vh] overflow-y-auto">
             @foreach($products as $product)
             <div class="flex flex-col rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md hover:border-brand-400 dark:hover:border-brand-400 transition-all overflow-hidden"
-                 x-show="'{{ strtolower($product->name) }}'.includes(search.toLowerCase())">
+                 x-show="'{{ strtolower($product->name) }}'.includes(search.toLowerCase()) && (categoryFilter === '' || categoryFilter === '{{ $product->category_id }}')">
 
                 {{-- Card header --}}
                 <div class="px-3.5 pt-3.5 pb-2">
-                    <p class="font-medium text-sm text-ink dark:text-white leading-snug">{{ $product->name }}</p>
+                    <div class="flex items-start justify-between gap-1">
+                        <p class="font-medium text-sm text-ink dark:text-white leading-snug">{{ $product->name }}</p>
+                        @if($product->category)
+                            <span class="flex-shrink-0 text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-full px-2 py-0.5 whitespace-nowrap">{{ $product->category->name }}</span>
+                        @endif
+                    </div>
                     <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">₱{{ number_format($product->base_price, 2) }}</p>
                 </div>
 
@@ -54,10 +71,16 @@
     </div>
 
     <!-- Cart -->
-    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col">
-        <p class="font-medium text-ink dark:text-white mb-3">Current Sale</p>
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+            <p class="font-medium text-ink dark:text-white flex items-center gap-2">
+                <i data-lucide="shopping-cart" class="w-4 h-4 text-brand-600"></i> Current Sale
+            </p>
+            <span x-show="cart.length > 0" x-text="cart.length + ' item' + (cart.length === 1 ? '' : 's')"
+                  class="text-xs bg-brand-50 dark:bg-brand-600/20 text-brand-700 dark:text-brand-300 rounded-full px-2.5 py-1"></span>
+        </div>
 
-        <div class="flex-1 overflow-y-auto space-y-3 max-h-[45vh]">
+        <div class="flex-1 overflow-y-auto space-y-3 max-h-[38vh] p-5">
             <template x-for="(item, idx) in cart" :key="idx">
                 <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/40 p-3 text-sm">
                     <div class="flex items-start justify-between gap-2">
@@ -92,10 +115,13 @@
                     </div>
                 </div>
             </template>
-            <p x-show="cart.length === 0" class="text-sm text-slate-400">Cart is empty.</p>
+            <div x-show="cart.length === 0" class="text-center py-8">
+                <i data-lucide="shopping-cart" class="w-8 h-8 text-slate-300 mx-auto mb-2"></i>
+                <p class="text-sm text-slate-400">Cart is empty — add a product to get started.</p>
+            </div>
         </div>
 
-        <form :action="'{{ route('pos.store') }}'" method="POST" @submit="handleSubmit($event)" class="mt-4 space-y-3 border-t border-slate-100 dark:border-slate-700 pt-4">
+        <form :action="'{{ route('pos.store') }}'" method="POST" @submit="handleSubmit($event)" class="p-5 space-y-3 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
             @csrf
             <template x-for="(item, idx) in cart" :key="idx">
                 <div>
@@ -107,30 +133,34 @@
                 </div>
             </template>
 
-            <div>
-                <label class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1 block">Customer</label>
-                <x-select-menu name="customer_id"
-                    :options="collect(['' => 'Walk-in customer'])->union($customers->pluck('name', 'id'))->all()"
-                    placeholder="Walk-in customer" />
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1 block">Customer</label>
+                    <x-select-menu name="customer_id"
+                        :options="collect(['' => 'Walk-in customer'])->union($customers->pluck('name', 'id'))->all()"
+                        placeholder="Walk-in customer" />
+                </div>
+
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1 block">Payment Method</label>
+                    <x-select-menu name="payment_method"
+                        :options="['cash' => 'Cash', 'gcash' => 'GCash']"
+                        :selected="'cash'" />
+                </div>
             </div>
 
-            <div>
-                <label class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1 block">Payment Method</label>
-                <x-select-menu name="payment_method"
-                    :options="['cash' => 'Cash', 'gcash' => 'GCash', 'card' => 'Card', 'bank_transfer' => 'Bank Transfer']"
-                    :selected="'cash'" />
-            </div>
-
-            <div class="flex justify-between text-sm pt-2 text-ink dark:text-white">
-                <span>Subtotal</span><span x-text="'₱' + subtotal.toFixed(2)"></span>
-            </div>
-            <div class="flex justify-between items-center text-sm">
-                <span class="text-ink dark:text-white">Discount</span>
-                <input type="number" name="discount_amount" x-model.number="discount" step="0.01" min="0"
-                       class="w-24 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white text-right px-2 py-1.5">
-            </div>
-            <div class="flex justify-between font-semibold text-ink dark:text-white text-base">
-                <span>Total</span><span x-text="'₱' + total.toFixed(2)"></span>
+            <div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+                <div class="flex justify-between text-sm text-ink dark:text-white">
+                    <span>Subtotal</span><span x-text="'₱' + subtotal.toFixed(2)"></span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                    <span class="text-ink dark:text-white">Discount</span>
+                    <input type="number" name="discount_amount" x-model.number="discount" step="0.01" min="0"
+                           class="w-24 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white text-right px-2 py-1.5">
+                </div>
+                <div class="flex justify-between font-semibold text-ink dark:text-white text-base border-t border-slate-100 dark:border-slate-700 pt-2">
+                    <span>Total</span><span x-text="'₱' + total.toFixed(2)"></span>
+                </div>
             </div>
 
             <div>
@@ -153,7 +183,8 @@
             </div>
 
             <button type="submit" :disabled="cart.length === 0 || amountPaid <= 0"
-                class="w-full bg-ink hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg py-2.5 text-sm font-medium mt-2">
+                class="w-full bg-ink hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg py-2.5 text-sm font-medium flex items-center justify-center gap-2">
+                <i data-lucide="check-circle" class="w-4 h-4"></i>
                 <span x-text="amountPaid > 0 && amountPaid < total ? 'Record Down Payment' : 'Complete Sale'"></span>
             </button>
         </form>
@@ -164,6 +195,7 @@
 function posCart() {
     return {
         search: '',
+        categoryFilter: '',
         cart: [],
         subtotal: 0,
         discount: 0,

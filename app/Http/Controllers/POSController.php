@@ -18,11 +18,12 @@ class POSController extends Controller
     {
         $products = Product::with(['variants' => function ($q) {
             $q->where('status', 'active');
-        }])->where('status', 'active')->get();
+        }, 'category'])->where('status', 'active')->get();
 
         $customers = Customer::orderBy('name')->get();
+        $categories = \App\Models\Category::whereNull('archived_at')->orderBy('name')->get();
 
-        return view('pos.index', compact('products', 'customers'));
+        return view('pos.index', compact('products', 'customers', 'categories'));
     }
 
     // Process the sale/transaction
@@ -36,7 +37,7 @@ class POSController extends Controller
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.customization_details' => 'nullable|string',
             'customer_id' => 'nullable|exists:customers,id',
-            'payment_method' => 'required|in:cash,gcash,card,bank_transfer',
+            'payment_method' => 'required|in:cash,gcash',
             'amount_paid' => 'required|numeric|min:0',
             'discount_amount' => 'nullable|numeric|min:0',
         ]);
@@ -211,6 +212,15 @@ class POSController extends Controller
         }
         $sale->update(['status' => 'completed']);
         return back()->with('success', "Sale {$sale->invoice_number} marked completed.");
+    }
+
+    // Manual "Delete" from the Sales list — archives instead of removing,
+    // same pattern as Products/Appointments/Materials/Categories. This is
+    // separate from the automatic 2-year sweep in autoArchiveOld().
+    public function archiveOne(Sale $sale)
+    {
+        $sale->update(['status' => 'archived']);
+        return back()->with('success', "Sale {$sale->invoice_number} archived.");
     }
 
     // Edit a sale: update status directly, and/or record an additional

@@ -2,8 +2,9 @@
 @section('title', 'Materials Archive')
 
 @section('content')
-<a href="{{ route('inventory.materials') }}" class="text-xs text-brand-600 flex items-center gap-1 mb-4">
-    <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to Raw Materials
+<a href="{{ route('inventory.materials') }}"
+   class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg px-4 py-2 mb-4 shadow-sm">
+    <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Raw Materials
 </a>
 
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">

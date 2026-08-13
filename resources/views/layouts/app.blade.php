@@ -123,13 +123,6 @@
             @endif
 
             @if(auth()->user()->role === 'admin')
-            <p class="px-3 pb-1 pt-4 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Services</p>
-            <a href="{{ route('appointments.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('appointments.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
-                <i data-lucide="calendar-days" class="w-4 h-4"></i><span>Appointments</span>
-            </a>
-            @endif
-
-            @if(auth()->user()->role === 'admin')
             <p class="px-3 pb-1 pt-4 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Admin</p>
             <a href="{{ route('users.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('users.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
                 <i data-lucide="users" class="w-4 h-4"></i><span>User Management</span>

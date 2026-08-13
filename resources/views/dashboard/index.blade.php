@@ -24,18 +24,9 @@
             <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Stock Items</p>
             <i data-lucide="package" class="w-4 h-4 text-brand-500"></i>
         </div>
-        <p class="text-2xl font-semibold text-ink dark:text-white">{{ $totalStockItems }}</p>
         <p class="text-xs {{ $lowStockCount + $outOfStockCount > 0 ? 'text-amber-600' : 'text-slate-400' }} mt-1">
             {{ $lowStockCount }} low · {{ $outOfStockCount }} out
         </p>
-    </a>
-    <a href="{{ route('appointments.index') }}" class="block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-brand-400 transition-colors">
-        <div class="flex items-center justify-between mb-2">
-            <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Appointments</p>
-            <i data-lucide="calendar-days" class="w-4 h-4 text-brand-500"></i>
-        </div>
-        <p class="text-2xl font-semibold text-ink dark:text-white">{{ $todayAppointmentsCount }}</p>
-        <p class="text-xs text-slate-400 mt-1">Today</p>
     </a>
 </div>
 
@@ -107,23 +98,6 @@
                     </div>
                 @empty
                     <p class="text-sm text-slate-400">No stock activity yet.</p>
-                @endforelse
-            </div>
-        </div>
-
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
-            <div class="flex items-center justify-between mb-4">
-                <p class="font-medium text-ink dark:text-white">Upcoming Appointments</p>
-                <a href="{{ route('appointments.index') }}" class="text-xs text-brand-600 hover:underline">View all →</a>
-            </div>
-            <div class="space-y-3">
-                @forelse($upcomingAppointments as $appt)
-                    <div class="text-sm border-l-2 border-brand-500 pl-3">
-                        <p class="text-ink dark:text-white font-medium">{{ $appt->service }} — {{ $appt->client_name }}</p>
-                        <p class="text-xs text-slate-400">{{ $appt->appointment_date->isToday() ? 'Today' : $appt->appointment_date->format('M j') }}, {{ \Carbon\Carbon::parse($appt->appointment_time)->format('g:i A') }} @if($appt->location) · {{ $appt->location }} @endif</p>
-                    </div>
-                @empty
-                    <p class="text-sm text-slate-400">No upcoming appointments.</p>
                 @endforelse
             </div>
         </div>
