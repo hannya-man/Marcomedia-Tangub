@@ -14,14 +14,19 @@ return new class extends Migration {
 
         // The photographer-assignment feature (and its notification bell)
         // goes with the role — these columns were only ever used for that.
-        Schema::table('appointments', function (Blueprint $table) {
-            if (Schema::hasColumn('appointments', 'assigned_to')) {
-                $table->dropConstrainedForeignId('assigned_to');
-            }
-            if (Schema::hasColumn('appointments', 'seen_at')) {
-                $table->dropColumn('seen_at');
-            }
-        });
+        // Guarded with hasTable() since the appointments table itself is
+        // dropped in a later migration (000022) — this keeps fresh installs
+        // working even though it no longer applies to any existing data.
+        if (Schema::hasTable('appointments')) {
+            Schema::table('appointments', function (Blueprint $table) {
+                if (Schema::hasColumn('appointments', 'assigned_to')) {
+                    $table->dropConstrainedForeignId('assigned_to');
+                }
+                if (Schema::hasColumn('appointments', 'seen_at')) {
+                    $table->dropColumn('seen_at');
+                }
+            });
+        }
     }
     public function down(): void {
         DB::statement("ALTER TABLE users MODIFY role ENUM('admin','cashier','photographer') NOT NULL DEFAULT 'cashier'");

@@ -23,7 +23,7 @@
 
     <div class="login-card w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8" x-data="{ showPassword: false }">
         <div class="text-center mb-8">
-            <div class="w-14 h-14 rounded-xl bg-gold-500 mx-auto flex items-center justify-center text-ink font-bold text-xl mb-3">M</div>
+            <img src="{{ asset('images/marcomedia-logo.png') }}" alt="Marcomedia" class="w-14 h-14 rounded-xl mx-auto mb-3 object-cover">
             <p class="text-lg font-semibold text-ink dark:text-white">Marcomedia POS</p>
             <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mt-1">Printing &amp; Photography</p>
         </div>

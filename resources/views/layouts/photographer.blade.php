@@ -29,7 +29,7 @@
 <div class="flex">
     <aside class="w-64 bg-ink flex-shrink-0 hidden lg:flex lg:flex-col min-h-screen">
         <div class="flex items-center gap-3 px-5 h-16 border-b border-white/10">
-            <div class="w-9 h-9 rounded-lg bg-brand-600 flex items-center justify-center text-white font-bold text-sm">M</div>
+            <img src="{{ asset('images/marcomedia-logo.png') }}" alt="Marcomedia" class="w-9 h-9 rounded-full object-cover flex-shrink-0">
             <div>
                 <p class="text-white text-sm font-semibold leading-tight">Marcomedia POS</p>
                 <p class="text-[10px] text-slate-400 uppercase tracking-wider">Photographer</p>

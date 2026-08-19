@@ -81,7 +81,7 @@
            class="w-64 bg-ink flex-shrink-0 flex flex-col min-h-screen fixed lg:static inset-y-0 left-0 z-40 transition-transform duration-300 ease-in-out">
         <div class="flex items-center justify-between gap-3 px-5 h-16 border-b border-white/10">
             <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-lg bg-gold-500 flex items-center justify-center text-ink font-bold text-sm">M</div>
+                <img src="{{ asset('images/marcomedia-logo.png') }}" alt="Marcomedia" class="w-9 h-9 rounded-full object-cover flex-shrink-0">
                 <div>
                     <p class="text-white text-sm font-semibold leading-tight">Marcomedia POS</p>
                     <p class="text-[10px] text-slate-400 uppercase tracking-wider">Management</p>
@@ -172,7 +172,7 @@
                          x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
                          x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
                          style="display: none;"
-                         class="absolute right-0 mt-2 min-w-[10rem] overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-md z-50">
+                         class="absolute right-0 mt-2 w-48 overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-md z-50">
                         <a href="{{ route('profile.edit') }}" class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                             <i data-lucide="user" class="w-4 h-4"></i> Profile
                         </a>
@@ -242,7 +242,6 @@ function playLogoutTransition(form) {
     return false;
 }
 </script>
-@include('partials.chat-widget')
 
 <script>lucide.createIcons();</script>
 @stack('scripts')

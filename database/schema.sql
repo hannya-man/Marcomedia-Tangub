@@ -14,7 +14,7 @@ CREATE TABLE users (
     name VARCHAR(100) NOT NULL,
     email VARCHAR(150) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
-    role ENUM('admin','cashier','photographer') NOT NULL DEFAULT 'cashier',
+    role ENUM('admin','cashier') NOT NULL DEFAULT 'cashier',
     created_at TIMESTAMP NULL DEFAULT NULL,
     updated_at TIMESTAMP NULL DEFAULT NULL
 );
