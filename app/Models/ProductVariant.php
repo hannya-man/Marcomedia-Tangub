@@ -6,7 +6,7 @@ class ProductVariant extends Model
 {
     protected $fillable = [
         'product_id', 'variant_name', 'sku', 'attributes', 'price',
-        'cost_price', 'stock_quantity', 'low_stock_threshold',
+        'cost_price', 'stock_quantity', 'damaged_quantity', 'low_stock_threshold',
         'reorder_point', 'status',
     ];
 
@@ -33,12 +33,30 @@ class ProductVariant extends Model
         return $this->price ?? $this->product->base_price;
     }
 
-    // Stock status: out / low / ok - this is what powers the dashboard alerts
+    // Stock minus whatever's marked damaged. This is the number that
+    // actually decides what a customer can buy.
+    public function getSellableQuantityAttribute(): int
+    {
+        return max($this->stock_quantity - $this->damaged_quantity, 0);
+    }
+
+    // Stock status: out / low / ok — driven by SELLABLE stock, not raw
+    // stock, so a pile of damaged units never hides a real shortage.
     public function getStockStatusAttribute(): string
     {
-        if ($this->stock_quantity <= 0) return 'out_of_stock';
-        if ($this->stock_quantity <= $this->low_stock_threshold) return 'low_stock';
+        if ($this->sellable_quantity <= 0) return 'out_of_stock';
+        if ($this->sellable_quantity <= $this->low_stock_threshold) return 'low_stock';
         return 'in_stock';
+    }
+
+    // Can never mark more damaged than what's actually good stock —
+    // stops the same unit from being counted twice.
+    public function markDamaged(int $qty, ?string $remarks = null, ?int $userId = null): void
+    {
+        if ($qty > $this->sellable_quantity) {
+            throw new \RuntimeException("Cannot mark {$qty} damaged — only {$this->sellable_quantity} good stock available.");
+        }
+        $this->increment('damaged_quantity', $qty);
     }
 
     /**

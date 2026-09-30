@@ -67,7 +67,6 @@ class InventoryController extends Controller
             'variants.*.variant_name' => 'required_with:variants|string|max:100',
             'variants.*.sku' => 'required_with:variants|string|max:60|distinct',
             'variants.*.price' => 'nullable|numeric|min:0',
-            'variants.*.stock_quantity' => 'required_with:variants|integer|min:0',
             'variants.*.low_stock_threshold' => 'nullable|integer|min:0',
             'variants.*.materials.*.material_id' => ['nullable', Rule::exists('materials', 'id')->whereNull('archived_at')],
             'variants.*.materials.*.quantity_per_unit' => 'nullable|numeric|min:0',
@@ -94,6 +93,10 @@ class InventoryController extends Controller
             'status' => 'active',
         ]);
 
+        // Sizes are created at 0 stock — quantity only ever enters through
+        // a batch / restock transaction, never at product creation. This
+        // keeps Product (the master record) and Stock (a separate,
+        // batch-based concept) from getting tangled together.
         foreach ($validated['variants'] ?? [] as $v) {
             $variant = $product->variants()->create([
                 'variant_name' => $v['variant_name'],
@@ -113,24 +116,6 @@ class InventoryController extends Controller
                         'quantity_per_unit' => $vm['quantity_per_unit'],
                     ]);
                 }
-            }
-
-            // Route the starting stock through adjustStock() instead of
-            // setting stock_quantity directly — this is the same method
-            // the "Restock" button uses, so a size linked to one or more
-            // materials gets every one of them deducted immediately, even
-            // for its very first batch. Setting stock_quantity directly
-            // here would silently skip that.
-            $initialQty = (int) $v['stock_quantity'];
-            if ($initialQty > 0) {
-                $variant->adjustStock(
-                    $initialQty,
-                    'stock_in',
-                    'initial_stock',
-                    null,
-                    'Starting stock when product was created',
-                    Auth::id()
-                );
             }
         }
 
@@ -165,6 +150,25 @@ class InventoryController extends Controller
         return back()->with('success', "Stock updated for {$variant->variant_name}.");
     }
 
+    // Marks units as damaged — pulled out of sellable count without
+    // touching stock_quantity itself, so the audit trail (how many ever
+    // came in) stays intact.
+    public function markDamaged(Request $request, ProductVariant $variant)
+    {
+        $validated = $request->validate([
+            'quantity' => 'required|integer|min:1',
+            'remarks' => 'nullable|string|max:255',
+        ]);
+
+        try {
+            $variant->markDamaged($validated['quantity'], $validated['remarks'] ?? null, Auth::id());
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', "{$validated['quantity']} unit(s) of {$variant->variant_name} marked damaged.");
+    }
+
     // "Delete" archives the product instead of removing it — nothing is
     // ever permanently lost, it just leaves the main list.
     public function destroy(Product $product)
@@ -185,12 +189,14 @@ class InventoryController extends Controller
         return view('inventory.archive', compact('archivedProducts'));
     }
 
-    // Low stock report, grouped by product
+    // Low stock report, grouped by product — now checks SELLABLE stock
+    // (stock minus damaged), not raw stock, so a product that's only
+    // "low" because half its units are damaged still shows up here.
     public function lowStock()
     {
         $variants = ProductVariant::with('product')
-            ->whereColumn('stock_quantity', '<=', 'low_stock_threshold')
-            ->orderBy('stock_quantity')
+            ->whereRaw('(stock_quantity - damaged_quantity) <= low_stock_threshold')
+            ->orderByRaw('stock_quantity - damaged_quantity')
             ->get();
 
         return view('inventory.low-stock', compact('variants'));

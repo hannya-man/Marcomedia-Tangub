@@ -4,11 +4,13 @@ use Illuminate\Database\Eloquent\Model;
 
 class Material extends Model
 {
-    protected $fillable = ['name', 'unit', 'stock_quantity', 'low_stock_threshold', 'cost_per_unit', 'archived_at'];
+    protected $fillable = ['material_category_id', 'name', 'unit', 'stock_quantity', 'low_stock_threshold', 'cost_per_unit', 'archived_at'];
 
     protected $casts = [
         'archived_at' => 'datetime',
     ];
+
+    public function category() { return $this->belongsTo(MaterialCategory::class, 'material_category_id'); }
 
     public function variants()
     {
@@ -16,6 +18,8 @@ class Material extends Model
             ->withPivot('quantity_per_unit')
             ->withTimestamps();
     }
+
+    public function batches() { return $this->hasMany(InventoryBatch::class); }
 
     public function getStockStatusAttribute(): string
     {

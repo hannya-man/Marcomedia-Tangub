@@ -25,17 +25,18 @@ class DashboardController extends Controller
             ->where('status', 'completed')
             ->sum('total_amount');
 
-        // Low stock / out of stock variants - the whole point of variant-level tracking
+        // Low stock / out of stock variants — now driven by SELLABLE
+        // stock (stock minus damaged), not raw stock_quantity.
         $lowStockVariants = ProductVariant::with('product')
-            ->whereColumn('stock_quantity', '<=', 'low_stock_threshold')
+            ->whereRaw('(stock_quantity - damaged_quantity) <= low_stock_threshold')
             ->where('status', 'active')
-            ->orderBy('stock_quantity')
+            ->orderByRaw('stock_quantity - damaged_quantity')
             ->limit(10)
             ->get();
 
-        $outOfStockCount = ProductVariant::where('stock_quantity', '<=', 0)->count();
-        $lowStockCount = ProductVariant::whereColumn('stock_quantity', '<=', 'low_stock_threshold')
-            ->where('stock_quantity', '>', 0)
+        $outOfStockCount = ProductVariant::whereRaw('(stock_quantity - damaged_quantity) <= 0')->count();
+        $lowStockCount = ProductVariant::whereRaw('(stock_quantity - damaged_quantity) <= low_stock_threshold')
+            ->whereRaw('(stock_quantity - damaged_quantity) > 0')
             ->count();
         $totalStockItems = ProductVariant::count();
 
@@ -47,14 +48,37 @@ class DashboardController extends Controller
             ->orderBy('date')
             ->get();
 
-        // Best sellers this month
-        $topProducts = SaleItem::selectRaw('item_name, SUM(quantity) as qty_sold, SUM(subtotal) as revenue')
-            ->whereHas('sale', function ($q) {
-                $q->whereMonth('created_at', now()->month)
-                  ->where('status', 'completed');
-            })
-            ->groupBy('item_name')
+        // Top 10 fast movers TODAY — grouped by product_id, not item_name.
+        // Grouping by name silently merges two different products that
+        // happen to share a name, and splits history for a renamed product.
+        $topMovers = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->whereDate('sales.created_at', $today)
+            ->where('sales.status', 'completed')
+            ->select('products.id', 'products.name', DB::raw('SUM(sale_items.quantity) as qty_sold'), DB::raw('SUM(sale_items.subtotal) as revenue'))
+            ->groupBy('products.id', 'products.name')
             ->orderByDesc('qty_sold')
+            ->limit(10)
+            ->get();
+
+        // Bottom 5 slow movers TODAY — starts from the products table and
+        // LEFT JOINs sales onto it, so a product with zero sales today
+        // still shows up with qty_sold = 0. Starting from sale_items
+        // instead would silently drop the slowest movers of all (the ones
+        // that sold nothing), since they'd have no row to find.
+        $soldToday = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->whereDate('sales.created_at', $today)
+            ->where('sales.status', 'completed')
+            ->select('sale_items.product_id', DB::raw('SUM(sale_items.quantity) as qty_sold'))
+            ->groupBy('sale_items.product_id');
+
+        $slowMovers = DB::table('products')
+            ->leftJoinSub($soldToday, 'sold', 'sold.product_id', '=', 'products.id')
+            ->where('products.status', 'active')
+            ->select('products.id', 'products.name', DB::raw('COALESCE(sold.qty_sold, 0) as qty_sold'))
+            ->orderBy('qty_sold')
             ->limit(5)
             ->get();
 
@@ -107,7 +131,7 @@ class DashboardController extends Controller
         return view('dashboard.index', compact(
             'todaySales', 'todayTransactions', 'monthSales',
             'lowStockVariants', 'outOfStockCount', 'lowStockCount', 'totalStockItems',
-            'salesTrend', 'topProducts', 'recentSales', 'recentMovements', 'chartSets',
+            'salesTrend', 'topMovers', 'slowMovers', 'recentSales', 'recentMovements', 'chartSets',
         ));
     }
 }

@@ -231,13 +231,15 @@
 
                 <div x-show="hasVariants" style="display:none;" class="border-t border-slate-100 dark:border-slate-700 pt-4">
                     <p class="text-sm font-medium text-ink dark:text-white mb-1">Sizes for this product</p>
-                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Each size below is tracked as its own stock count — running out of Medium won't affect Large.</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                        Each size below is created with 0 stock. Starting quantity is added afterward through
+                        a Restock / batch receipt on the Inventory page — not here.
+                    </p>
 
                     <div class="hidden md:grid md:grid-cols-12 gap-2 px-3 mb-1">
-                        <label class="md:col-span-3 text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Size / Variant</label>
-                        <label class="md:col-span-3 text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Variant SKU</label>
+                        <label class="md:col-span-4 text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Size / Variant</label>
+                        <label class="md:col-span-4 text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Variant SKU</label>
                         <label class="md:col-span-2 text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Price</label>
-                        <label class="md:col-span-2 text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Stock Qty</label>
                         <label class="md:col-span-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Warn At</label>
                         <span class="md:col-span-1"></span>
                     </div>
@@ -245,12 +247,12 @@
                     <div class="space-y-2">
                         <template x-for="(row, i) in rows" :key="i">
                             <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-3 rounded-lg bg-slate-50 dark:bg-slate-700/40">
-                                <div class="md:col-span-3">
+                                <div class="md:col-span-4">
                                     <label class="md:hidden text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Size / Variant</label>
                                     <input type="text" :name="`variants[${i}][variant_name]`" x-model="row.name" placeholder="e.g. Medium (M)"
                                         class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white px-3 py-2">
                                 </div>
-                                <div class="md:col-span-3">
+                                <div class="md:col-span-4">
                                     <label class="md:hidden text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Variant SKU</label>
                                     <input type="text" :name="`variants[${i}][sku]`" x-model="row.sku" placeholder="e.g. TSHIRT-SUB-001-M"
                                         class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white px-3 py-2">
@@ -258,11 +260,6 @@
                                 <div class="md:col-span-2">
                                     <label class="md:hidden text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Price</label>
                                     <input type="number" step="0.01" :name="`variants[${i}][price]`" x-model="row.price" placeholder="Base price if blank"
-                                        class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white px-3 py-2">
-                                </div>
-                                <div class="md:col-span-2">
-                                    <label class="md:hidden text-[11px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Stock Quantity</label>
-                                    <input type="number" :name="`variants[${i}][stock_quantity]`" x-model="row.stock" placeholder="0"
                                         class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white px-3 py-2">
                                 </div>
                                 <div class="md:col-span-1">
@@ -316,7 +313,7 @@
                             </div>
                         </template>
                     </div>
-                    <button type="button" @click="rows.push({name:'',sku:'',price:'',stock:'',threshold:5,materials:[]})"
+                    <button type="button" @click="rows.push({name:'',sku:'',price:'',threshold:5,materials:[]})"
                         class="mt-2 text-xs text-brand-600 font-medium flex items-center gap-1">
                         <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a size
                     </button>

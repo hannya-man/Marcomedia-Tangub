@@ -41,6 +41,11 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::post('/users', [UserController::class, 'store'])->name('users.store');
         Route::patch('/users/{user}', [UserController::class, 'update'])->name('users.update');
+
+        // Owner-only actions — returns and physical counts must never be
+        // reachable by a cashier, so these stay out of the shared group below.
+        Route::post('/returns', [\App\Http\Controllers\SaleReturnController::class, 'store'])->name('returns.store');
+        Route::post('/physical-counts', [\App\Http\Controllers\PhysicalCountController::class, 'store'])->name('physical-counts.store');
     });
 
     // Billing/POS + Stock — admin and cashier.
@@ -52,10 +57,15 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');
         Route::post('/inventory', [InventoryController::class, 'store'])->name('inventory.store');
         Route::post('/inventory/variants/{variant}/adjust', [InventoryController::class, 'adjustStock'])->name('inventory.adjust');
+        Route::post('/inventory/variants/{variant}/mark-damaged', [InventoryController::class, 'markDamaged'])->name('inventory.mark-damaged');
         Route::get('/inventory/low-stock', [InventoryController::class, 'lowStock'])->name('inventory.low-stock');
         Route::get('/inventory/archive', [InventoryController::class, 'archive'])->name('inventory.archive');
         Route::delete('/inventory/{product}', [InventoryController::class, 'destroy'])->name('inventory.destroy');
         Route::post('/inventory/{product}/restore', [InventoryController::class, 'restore'])->name('inventory.restore');
+
+        // Batch receiving — location (store/warehouse) is required on every
+        // receive, enforced in InventoryBatchController's validation.
+        Route::post('/inventory-batches', [\App\Http\Controllers\InventoryBatchController::class, 'store'])->name('inventory-batches.store');
 
         // Raw materials (fabric rolls, blanks, etc.) that get consumed to
         // produce finished stock — see MaterialController for how this
@@ -86,6 +96,12 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         // for why) — only restore stays, so any pre-existing archived Order can
         // still be brought back from the Archive page.
         Route::post('/orders/{order}/restore', [POSController::class, 'restoreOrder'])->name('orders.restore');
+
+        // Shift open/close — every cashier and admin runs their own shift.
+        // Close is blocked inside the controller unless counted cash
+        // matches system sales for that shift's window.
+        Route::post('/shifts/open', [\App\Http\Controllers\ShiftController::class, 'open'])->name('shifts.open');
+        Route::post('/shifts/{shift}/close', [\App\Http\Controllers\ShiftController::class, 'close'])->name('shifts.close');
     });
 
 });

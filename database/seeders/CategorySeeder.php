@@ -1,23 +1,27 @@
 <?php
 namespace Database\Seeders;
 
-use App\Models\Category;
+use App\Models\MaterialCategory;
 use Illuminate\Database\Seeder;
 
-class CategorySeeder extends Seeder
+class MaterialCategorySeeder extends Seeder
 {
     public function run(): void
     {
         $defaults = [
-            'Apparel / Sublimation',
-            'Trophies & Plaques',
-            'Customized Items',
-            'Printing Services',
-            'Sublimation, DTP, DTF',
+            'Textile & Fabric',
+            'Ink & Consumables',
+            'Acrylic & Plastic',
+            'Blanks — Drinkware & Giveaways',
+            'Blanks — Awards & Trophies',
+            'Paper & Card Stock',
+            'Vinyl & Large Format',
+            'Hardware & Findings',
+            'Packaging',
         ];
 
         foreach ($defaults as $name) {
-            Category::firstOrCreate(
+            MaterialCategory::firstOrCreate(
                 ['slug' => str($name)->slug()],
                 ['name' => $name]
             );

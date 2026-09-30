@@ -53,9 +53,11 @@ class POSController extends Controller
                         ? ProductVariant::findOrFail($item['product_variant_id'])
                         : null;
 
-                    if ($product->track_inventory && $variant && $variant->stock_quantity < $item['quantity']) {
+                    // Checks sellable_quantity (stock minus damaged), not
+                    // raw stock_quantity — a damaged unit can never be sold.
+                    if ($product->track_inventory && $variant && $variant->sellable_quantity < $item['quantity']) {
                         throw new \RuntimeException(
-                            "Not enough stock for {$product->name} ({$variant->variant_name}). Only {$variant->stock_quantity} left."
+                            "Not enough good stock for {$product->name} ({$variant->variant_name}). Only {$variant->sellable_quantity} sellable."
                         );
                     }
 

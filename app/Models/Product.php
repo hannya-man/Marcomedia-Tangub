@@ -19,16 +19,17 @@ class Product extends Model
     public function category() { return $this->belongsTo(Category::class); }
     public function variants() { return $this->hasMany(ProductVariant::class); }
 
-    // Total stock across all variants (or just informational if not tracked)
+    // Total SELLABLE stock across all variants — damaged units are
+    // excluded, so this always matches what a customer can actually buy.
     public function getTotalStockAttribute(): int
     {
-        return $this->variants()->sum('stock_quantity');
+        return (int) $this->variants()->selectRaw('COALESCE(SUM(stock_quantity - damaged_quantity), 0) as total')->value('total');
     }
 
     public function getHasLowStockAttribute(): bool
     {
         return $this->variants()
-            ->whereColumn('stock_quantity', '<=', 'low_stock_threshold')
+            ->whereRaw('(stock_quantity - damaged_quantity) <= low_stock_threshold')
             ->exists();
     }
 }

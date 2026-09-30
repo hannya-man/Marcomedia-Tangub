@@ -47,10 +47,10 @@
                         @foreach($product->variants as $variant)
                             <option value="{{ $variant->id }}"
                                 data-price="{{ $variant->price ?? $product->base_price }}"
-                                data-stock="{{ $variant->stock_quantity }}"
+                                data-stock="{{ $variant->sellable_quantity }}"
                                 data-name="{{ $variant->variant_name }}"
-                                {{ $variant->stock_quantity <= 0 ? 'disabled' : '' }}>
-                                {{ $variant->variant_name }} — {{ $variant->stock_quantity }} in stock
+                                {{ $variant->sellable_quantity <= 0 ? 'disabled' : '' }}>
+                                {{ $variant->variant_name }} — {{ $variant->sellable_quantity }} in stock
                             </option>
                         @endforeach
                     </select>
