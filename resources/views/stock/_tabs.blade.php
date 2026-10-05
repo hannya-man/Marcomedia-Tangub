@@ -1,10 +1,10 @@
-{{-- The four inventory types. Shown at the top of Raw Materials, Materials and Used Materials. --}}
+{{-- The four inventory types. Shown at the top of each inventory page. --}}
 @php
     $stockTabs = [
         ['Products', route('inventory.index'), request()->routeIs('inventory.index')],
-        ['Raw Materials', route('stock.raw'), request()->routeIs('stock.raw')],
-        ['Materials', route('stock.pieces'), request()->routeIs('stock.pieces')],
-        ['Used Materials', route('stock.used'), request()->routeIs('stock.used')],
+        ['Continuous Raw Materials', route('stock.continuous'), request()->routeIs('stock.continuous')],
+        ['Discrete Materials', route('stock.discrete'), request()->routeIs('stock.discrete')],
+        ['Scrapped / Rejected Output', route('stock.rejected'), request()->routeIs('stock.rejected')],
     ];
 @endphp
 <nav class="flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-700 mb-6" aria-label="Inventory types">
