@@ -5,6 +5,7 @@ use App\Models\Category;
 use App\Models\Material;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Inventory\BatchInventoryService;
 use Illuminate\Database\Seeder;
 
 /**
@@ -12,12 +13,20 @@ use Illuminate\Database\Seeder;
  * Tumbler. Each variant lists the exact materials it consumes and how much
  * per unit — matching the real "Add Product" + "Restock" flow, not a
  * shortcut. Run with: php artisan db:seed --class=TestDataSeeder
+ *
+ * CHANGED for batch inventory: material stock goes in as an opening batch,
+ * not a typed-in stock_quantity. Two opening amounts were raised because the
+ * starting products below use more than the old seed had, and the new code refuses
+ * to go below zero (the old code silently left these negative):
+ *   Sublimation Ink:   uses 2,104 ml, had 2,000 (ended at -104 ml)  -> now 3,000 ml
+ *   Poly Fabric White: uses 130 m,    had 80    (ended at -50 m)    -> now 150 m
  */
 class TestDataSeeder extends Seeder
 {
     public function run(): void
     {
         $userId = User::where('role', 'admin')->value('id');
+        $inventory = app(BatchInventoryService::class);
 
         // ---------------------------------------------------------
         // 1. RAW MATERIALS
@@ -27,18 +36,24 @@ class TestDataSeeder extends Seeder
         // because dye-sub card printers use a different consumable.
         // ---------------------------------------------------------
         $materials = collect([
-            ['name' => 'Ceramic Mug Blank (11oz)',        'unit' => 'pcs',    'stock_quantity' => 100, 'low_stock_threshold' => 15, 'cost_per_unit' => 45.00],
-            ['name' => 'Ceramic Mug Blank (15oz)',        'unit' => 'pcs',    'stock_quantity' => 60,  'low_stock_threshold' => 10, 'cost_per_unit' => 55.00],
-            ['name' => 'Sublimation Ink',                 'unit' => 'ml',     'stock_quantity' => 2000,'low_stock_threshold' => 300,'cost_per_unit' => 3.50],
-            ['name' => 'Sublimation Poly Fabric - White',  'unit' => 'meters', 'stock_quantity' => 80,  'low_stock_threshold' => 15, 'cost_per_unit' => 120.00],
-            ['name' => 'Sublimation Transfer Paper',       'unit' => 'sheets', 'stock_quantity' => 500, 'low_stock_threshold' => 50, 'cost_per_unit' => 8.00],
-            ['name' => 'PVC Card Blank',                   'unit' => 'pcs',    'stock_quantity' => 300, 'low_stock_threshold' => 40, 'cost_per_unit' => 6.50],
-            ['name' => 'ID Card Ribbon (YMCKO)',            'unit' => 'panels', 'stock_quantity' => 800, 'low_stock_threshold' => 100,'cost_per_unit' => 2.20],
-            ['name' => 'Lamination Film',                   'unit' => 'pcs',    'stock_quantity' => 250, 'low_stock_threshold' => 30, 'cost_per_unit' => 3.00],
-            ['name' => 'Stainless Tumbler Blank (20oz)',    'unit' => 'pcs',    'stock_quantity' => 50,  'low_stock_threshold' => 8,  'cost_per_unit' => 180.00],
-            ['name' => 'Stainless Tumbler Blank (30oz)',    'unit' => 'pcs',    'stock_quantity' => 40,  'low_stock_threshold' => 8,  'cost_per_unit' => 210.00],
-        ])->mapWithKeys(function ($m) {
-            $material = Material::firstOrCreate(['name' => $m['name']], $m);
+            ['name' => 'Ceramic Mug Blank (11oz)',        'unit' => 'pcs',    'opening_stock' => 100, 'low_stock_threshold' => 15, 'cost_per_unit' => 45.00],
+            ['name' => 'Ceramic Mug Blank (15oz)',        'unit' => 'pcs',    'opening_stock' => 60,  'low_stock_threshold' => 10, 'cost_per_unit' => 55.00],
+            ['name' => 'Sublimation Ink',                 'unit' => 'ml',     'opening_stock' => 3000,'low_stock_threshold' => 300,'cost_per_unit' => 3.50],
+            ['name' => 'Sublimation Poly Fabric - White', 'unit' => 'meters', 'opening_stock' => 150, 'low_stock_threshold' => 15, 'cost_per_unit' => 120.00],
+            ['name' => 'Sublimation Transfer Paper',      'unit' => 'sheets', 'opening_stock' => 500, 'low_stock_threshold' => 50, 'cost_per_unit' => 8.00],
+            ['name' => 'PVC Card Blank',                  'unit' => 'pcs',    'opening_stock' => 300, 'low_stock_threshold' => 40, 'cost_per_unit' => 6.50],
+            ['name' => 'ID Card Ribbon (YMCKO)',          'unit' => 'panels', 'opening_stock' => 800, 'low_stock_threshold' => 100,'cost_per_unit' => 2.20],
+            ['name' => 'Lamination Film',                 'unit' => 'pcs',    'opening_stock' => 250, 'low_stock_threshold' => 30, 'cost_per_unit' => 3.00],
+            ['name' => 'Stainless Tumbler Blank (20oz)',  'unit' => 'pcs',    'opening_stock' => 50,  'low_stock_threshold' => 8,  'cost_per_unit' => 180.00],
+            ['name' => 'Stainless Tumbler Blank (30oz)',  'unit' => 'pcs',    'opening_stock' => 40,  'low_stock_threshold' => 8,  'cost_per_unit' => 210.00],
+        ])->mapWithKeys(function ($m) use ($inventory, $userId) {
+            $opening = $m['opening_stock'];
+            unset($m['opening_stock']);
+
+            $material = Material::firstOrCreate(['name' => $m['name']], $m + ['stock_quantity' => 0]);
+            if ($material->wasRecentlyCreated) {
+                $inventory->recordOpeningStock($material, $opening, 'store', $userId);
+            }
             return [$m['name'] => $material->id];
         });
 
@@ -54,7 +69,7 @@ class TestDataSeeder extends Seeder
         // Each variant is created at zero stock, materials attached
         // with quantity_per_unit, then adjustStock() brings in the
         // starting batch — same call your Restock button uses, so
-        // materials get deducted automatically and correctly.
+        // materials get deducted from their active batches.
         // ---------------------------------------------------------
 
         // --- Regular Mug ---
@@ -133,7 +148,7 @@ class TestDataSeeder extends Seeder
         ]);
 
         foreach ($materialsWithQty as $materialId => $quantityPerUnit) {
-            $variant->materials()->attach($materialId, ['quantity_per_unit' => $quantityPerUnit]);
+            $variant->materials()->attach($materialId, ['quantity_per_unit' => $quantityPerUnit, 'consumption_type' => 'fixed']);
         }
 
         $variant->adjustStock($initialStock, 'stock_in', 'initial_stock', null, 'Test data seed', $userId);

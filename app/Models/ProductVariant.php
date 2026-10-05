@@ -1,6 +1,9 @@
 <?php
 namespace App\Models;
+
+use App\Services\Inventory\BatchInventoryService;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class ProductVariant extends Model
 {
@@ -21,10 +24,11 @@ class ProductVariant extends Model
 
     // A variant can consume MULTIPLE materials per unit — e.g. a
     // sublimation shirt uses fabric AND ink, at different rates each.
+    // consumption_type: fixed per unit, or by job size (per_area / per_length).
     public function materials()
     {
         return $this->belongsToMany(Material::class, 'variant_materials')
-            ->withPivot('quantity_per_unit')
+            ->withPivot('quantity_per_unit', 'consumption_type')
             ->withTimestamps();
     }
 
@@ -62,41 +66,42 @@ class ProductVariant extends Model
     /**
      * The single place stock ever changes. Every deduction/addition goes
      * through here so there's always a logged movement behind every number.
+     *
+     * CHANGED for batch inventory: one transaction, the variant row is locked, and a
+     * production run ("stock_in") takes its materials from each material's active batch,
+     * linked to this movement. If any material is short, nothing is saved.
      */
     public function adjustStock(int $signedQty, string $type, ?string $refType = null, ?int $refId = null, ?string $remarks = null, ?int $userId = null): void
     {
-        $before = $this->stock_quantity;
-        $after = $before + $signedQty;
+        DB::transaction(function () use ($signedQty, $type, $refType, $refId, $remarks, $userId) {
+            $before = (int) static::whereKey($this->id)->lockForUpdate()->value('stock_quantity');
+            $after = $before + $signedQty;
 
-        if ($after < 0) {
-            throw new \RuntimeException("Not enough stock for {$this->variant_name} (have {$before}, need " . abs($signedQty) . ")");
-        }
-
-        $this->stock_quantity = $after;
-        $this->save();
-
-        $this->movements()->create([
-            'type' => $type,
-            'quantity' => $signedQty,
-            'stock_before' => $before,
-            'stock_after' => $after,
-            'reference_type' => $refType,
-            'reference_id' => $refId,
-            'remarks' => $remarks,
-            'user_id' => $userId,
-            'created_at' => now(),
-        ]);
-
-        // Producing new finished stock (a "stock_in" / restock) consumes
-        // EVERY material this variant is linked to — a sublimation shirt
-        // draws down fabric AND ink at the same time, each at its own
-        // rate. Selling a shirt does NOT touch materials — the fabric/ink
-        // was already used when the shirt was produced, not when it's
-        // sold off the shelf.
-        if ($type === 'stock_in' && $signedQty > 0) {
-            foreach ($this->materials as $material) {
-                $material->decrement('stock_quantity', $signedQty * $material->pivot->quantity_per_unit);
+            if ($after < 0) {
+                throw new \RuntimeException("Not enough stock for {$this->variant_name} (have {$before}, need " . abs($signedQty) . ")");
             }
-        }
+
+            $this->stock_quantity = $after;
+            $this->save();
+
+            $movement = $this->movements()->create([
+                'type' => $type,
+                'quantity' => $signedQty,
+                'stock_before' => $before,
+                'stock_after' => $after,
+                'reference_type' => $refType,
+                'reference_id' => $refId,
+                'remarks' => $remarks,
+                'user_id' => $userId,
+                'created_at' => now(),
+            ]);
+
+            // Producing finished stock uses up EVERY material this size is made of — a
+            // sublimation shirt draws fabric AND ink. Selling the shirt later does NOT touch
+            // materials: they were used when it was produced.
+            if ($type === 'stock_in' && $signedQty > 0) {
+                app(BatchInventoryService::class)->consumeForProduction($this->id, $signedQty, $movement->id, $userId);
+            }
+        });
     }
 }
