@@ -8,7 +8,7 @@
         <p class="text-xs text-slate-500 dark:text-slate-400">{{ $sale->invoice_number }}</p>
         <p class="text-xs text-slate-500 dark:text-slate-400">{{ $sale->created_at->format('M j, Y h:i A') }}</p>
     </div>
-    <div class="border-t border-b border-dashed border-slate-300 py-3 space-y-2 text-sm">
+    <div class="border-t border-b border-dashed border-slate-300 dark:border-slate-600 py-3 space-y-2 text-sm">
         @foreach($sale->items as $item)
         <div class="flex justify-between">
             <div>

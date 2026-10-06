@@ -39,7 +39,7 @@
                 @forelse($users as $u)
                 <tr class="border-b border-slate-50 dark:border-slate-700 {{ $editingUser && $editingUser->id === $u->id ? 'bg-brand-50 dark:bg-brand-600/10' : '' }}">
                     <td class="p-4 flex items-center gap-2">
-                        <div class="w-7 h-7 rounded-full bg-brand-100 text-brand-700 text-xs flex items-center justify-center font-medium">
+                        <div class="w-7 h-7 rounded-full bg-brand-100 text-brand-700 dark:bg-brand-600 dark:text-white text-xs flex items-center justify-center font-medium">
                             {{ collect(explode(' ', $u->name))->map(fn($p) => strtoupper($p[0] ?? ''))->join('') }}
                         </div>
                         {{ $u->name }}
@@ -66,7 +66,7 @@
         <p class="font-medium text-ink dark:text-white mb-4">
             {{ $editingUser ? 'Edit ' . $editingUser->name : 'Add User' }}
         </p>
-        <div class="w-16 h-16 rounded-full bg-brand-100 text-brand-700 mx-auto mb-4 flex items-center justify-center text-lg font-semibold">
+        <div class="w-16 h-16 rounded-full bg-brand-100 text-brand-700 dark:bg-brand-600 dark:text-white mx-auto mb-4 flex items-center justify-center text-lg font-semibold">
             {{ $editingUser ? collect(explode(' ', $editingUser->name))->map(fn($p) => strtoupper($p[0] ?? ''))->join('') : '+' }}
         </div>
 
@@ -110,7 +110,7 @@
             @error('email')<p class="text-xs text-red-500">{{ $message }}</p>@enderror
             @error('password')<p class="text-xs text-red-500">{{ $message }}</p>@enderror
 
-            <button type="submit" class="w-full bg-ink hover:bg-slate-800 text-white text-sm rounded-lg py-2.5 mt-2 flex items-center justify-center gap-1.5">
+            <button type="submit" class="w-full bg-ink hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-ink text-sm rounded-lg py-2.5 mt-2 flex items-center justify-center gap-1.5">
                 <i data-lucide="{{ $editingUser ? 'check' : 'user-plus' }}" class="w-4 h-4"></i>
                 {{ $editingUser ? 'Save Changes' : 'Save User' }}
             </button>

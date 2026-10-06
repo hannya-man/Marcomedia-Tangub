@@ -183,7 +183,7 @@
             </div>
 
             <button type="submit" :disabled="cart.length === 0 || amountPaid <= 0"
-                class="w-full bg-ink hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg py-2.5 text-sm font-medium flex items-center justify-center gap-2">
+                class="w-full bg-ink hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-white dark:text-ink rounded-lg py-2.5 text-sm font-medium flex items-center justify-center gap-2">
                 <i data-lucide="check-circle" class="w-4 h-4"></i>
                 <span x-text="amountPaid > 0 && amountPaid < total ? 'Record Down Payment' : 'Complete Sale'"></span>
             </button>

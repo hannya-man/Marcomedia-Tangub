@@ -6,7 +6,7 @@
 
     {{-- Avatar + basic info header --}}
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 flex items-center gap-4">
-        <div class="w-16 h-16 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xl font-semibold">
+        <div class="w-16 h-16 rounded-full bg-brand-100 text-brand-700 dark:bg-brand-600 dark:text-white flex items-center justify-center text-xl font-semibold">
             {{ collect(explode(' ', auth()->user()->name))->map(fn($p) => strtoupper($p[0] ?? ''))->join('') }}
         </div>
         <div>
@@ -76,7 +76,7 @@
                 <input type="checkbox" x-model="show" class="rounded border-slate-300"> Show passwords
             </label>
 
-            <button type="submit" class="bg-ink hover:bg-slate-800 text-white text-sm rounded-lg px-5 py-2.5">Update Password</button>
+            <button type="submit" class="bg-ink hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-ink text-sm rounded-lg px-5 py-2.5">Update Password</button>
         </form>
     </div>
 </div>

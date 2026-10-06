@@ -75,6 +75,13 @@ body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
     color: #f1f5f9;
 }
 
+/* Same idea for brand-teal text (links like "View all" and "Restore", role
+   labels, icons): teal-600 is too dark to read on dark cards, so it lightens
+   to brand-300 in dark mode. */
+.dark .text-brand-600 {
+    color: #6fb9c8;
+}
+
 /* ===== Flat 2.0 (Semi-Flat) interaction polish ===== */
 a, button {
     transition: background-color 150ms ease, border-color 150ms ease,

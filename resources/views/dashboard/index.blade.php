@@ -60,7 +60,7 @@
                         <td class="py-2 text-ink dark:text-white">{{ $s->invoice_number }}</td>
                         <td>{{ $s->items->count() }}</td>
                         <td>₱{{ number_format($s->total_amount, 2) }}</td>
-                        <td><span class="px-2 py-0.5 rounded-full text-xs {{ $s->status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700' }}">{{ ucfirst($s->status) }}</span></td>
+                        <td><span class="px-2 py-0.5 rounded-full text-xs {{ $s->status === 'completed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }}">{{ ucfirst($s->status) }}</span></td>
                     </tr>
                     @empty
                     <tr><td colspan="4" class="py-6 text-center text-slate-400">No sales recorded yet.</td></tr>
@@ -72,7 +72,7 @@
     </div>
 
     <div class="space-y-6">
-        <div class="bg-ink rounded-xl p-5 text-center text-white">
+        <div class="bg-ink dark:bg-slate-800 dark:border dark:border-slate-700 rounded-xl p-5 text-center text-white">
             <p id="liveClock" class="text-3xl font-semibold tracking-wider">00:00:00</p>
             <p class="text-xs text-slate-400 uppercase tracking-wider mt-2">{{ now()->format('l, F j Y') }}</p>
         </div>
@@ -119,11 +119,22 @@ const salesChart = new Chart(document.getElementById('salesChart'), {
             tooltip: { callbacks: { label: (ctx) => '₱' + ctx.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2 }) } }
         },
         scales: {
-            y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { callback: (value) => '₱' + value.toLocaleString('en-US') } },
-            x: { grid: { display: false } }
+            y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { color: '#64748b', callback: (value) => '₱' + value.toLocaleString('en-US') } },
+            x: { grid: { display: false }, ticks: { color: '#64748b' } }
         }
     }
 });
+
+// Grid lines and labels follow dark mode, including when it's toggled on this page.
+function themeChart() {
+    const dark = document.documentElement.classList.contains('dark');
+    salesChart.options.scales.y.grid.color = dark ? '#334155' : '#f1f5f9';
+    salesChart.options.scales.y.ticks.color = dark ? '#94a3b8' : '#64748b';
+    salesChart.options.scales.x.ticks.color = dark ? '#94a3b8' : '#64748b';
+    salesChart.update('none');
+}
+themeChart();
+new MutationObserver(themeChart).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
 window.setChartPeriod = function (period) {
     const set = chartSets[period];

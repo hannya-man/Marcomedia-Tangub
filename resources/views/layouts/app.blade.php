@@ -69,7 +69,7 @@
     </script>
     @stack('scripts-head')
 </head>
-<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" x-data="{ mobileNavOpen: false }">
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors" x-data="{ mobileNavOpen: false, confirmingLogout: false }">
 <div class="flex">
 
     {{-- Mobile backdrop — tap outside the drawer to close it --}}
@@ -77,9 +77,11 @@
          class="fixed inset-0 bg-black/50 z-30 lg:hidden" style="display:none;"></div>
 
     {{-- ===================== SIDEBAR ===================== --}}
-    {{-- Desktop: sticky and one screen tall, so only the page scrolls. Phone: slide-out drawer. --}}
+    {{-- Desktop: sticky and one screen tall, so only the page scrolls. Phone: slide-out drawer.
+         h-dvh is the visible screen height: 100vh is taller on phones (it ignores the browser's
+         toolbar), which pushed the user block off the bottom of the screen. --}}
     <aside :class="mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
-           class="w-64 bg-ink flex-shrink-0 flex flex-col min-h-screen fixed lg:sticky lg:top-0 lg:h-screen inset-y-0 left-0 z-40 transition-transform duration-300 ease-in-out">
+           class="w-64 bg-ink dark:bg-slate-950 dark:border-r dark:border-slate-800 flex-shrink-0 flex flex-col h-dvh fixed lg:sticky lg:top-0 inset-y-0 left-0 z-40 transition-transform duration-300 ease-in-out">
         <div class="flex items-center justify-between gap-3 px-5 h-16 border-b border-white/10">
             <div class="flex items-center gap-3">
                 <img src="{{ asset('images/marcomedia-logo.png') }}" alt="Marcomedia" class="w-9 h-9 rounded-full object-cover flex-shrink-0">
@@ -139,9 +141,27 @@
             @endif
         </nav>
 
-        {{-- ===================== USER INFO (static — Profile/Logout now live in the header, see below) ===================== --}}
-        <div class="border-t border-white/10 p-4">
-            <div class="flex items-center gap-3">
+        {{-- ===================== USER MENU — Profile / Log out, same as the header avatar ===================== --}}
+        <div class="relative border-t border-white/10 p-3" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
+            {{-- Opens upward, above the name --}}
+            <div x-show="open"
+                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-1"
+                 style="display: none;" role="menu"
+                 class="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-lg border border-white/10 bg-zinc-800 dark:bg-slate-800 p-1 shadow-lg z-50">
+                <p class="px-2 pt-1.5 pb-2 mb-1 text-xs text-slate-400 truncate border-b border-white/10">{{ auth()->user()->email }}</p>
+                <a href="{{ route('profile.edit') }}" role="menuitem"
+                   class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-200 hover:bg-white/10 hover:text-white">
+                    <i data-lucide="user" class="w-4 h-4"></i> Profile
+                </a>
+                <button type="button" role="menuitem" @click="open = false; mobileNavOpen = false; confirmingLogout = true"
+                    class="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-red-400 hover:bg-red-500/10">
+                    <i data-lucide="log-out" class="w-4 h-4"></i> Log out
+                </button>
+            </div>
+
+            <button type="button" @click="open = !open" aria-haspopup="menu" :aria-expanded="open"
+                class="w-full flex items-center gap-3 rounded-lg p-2 text-left hover:bg-white/5" :class="open ? 'bg-white/5' : ''">
                 <div class="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-xs text-white font-medium flex-shrink-0">
                     {{ collect(explode(' ', auth()->user()->name ?? 'A N'))->map(fn($p) => strtoupper($p[0] ?? ''))->join('') }}
                 </div>
@@ -149,7 +169,8 @@
                     <p class="text-sm text-white font-medium truncate">{{ auth()->user()->name ?? 'Guest' }}</p>
                     <p class="text-[10px] text-slate-400 uppercase tracking-wider">{{ auth()->user()->role ?? 'User' }}</p>
                 </div>
-            </div>
+                <i data-lucide="chevrons-up-down" class="w-4 h-4 text-slate-400 flex-shrink-0"></i>
+            </button>
         </div>
     </aside>
 
@@ -169,8 +190,8 @@
                     <i data-lucide="sun" class="w-4 h-4" x-show="dark" style="display:none;"></i>
                 </button>
 
-                {{-- Profile / Logout — moved here from the sidebar, a more conventional spot for account actions --}}
-                <div class="relative" x-data="{ menuOpen: false, confirmingLogout: false }">
+                {{-- Profile / Logout. The sidebar's user menu has the same two actions. --}}
+                <div class="relative" x-data="{ menuOpen: false }">
                     <button @click="menuOpen = !menuOpen" @click.outside="menuOpen = false"
                         class="w-9 h-9 rounded-full bg-brand-100 dark:bg-brand-600 text-brand-700 dark:text-white flex items-center justify-center text-xs font-semibold">
                         {{ collect(explode(' ', auth()->user()->name ?? 'A N'))->map(fn($p) => strtoupper($p[0] ?? ''))->join('') }}
@@ -191,30 +212,6 @@
                             <i data-lucide="log-out" class="w-4 h-4"></i> Logout
                         </button>
                     </div>
-
-                    {{-- shadcn-style AlertDialog — confirm before logging out --}}
-                    <div x-show="confirmingLogout" style="display:none;" x-transition.opacity
-                         class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" @click.self="confirmingLogout = false">
-                        <div x-show="confirmingLogout" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
-                             class="bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 w-full max-w-sm p-6">
-                            <p class="text-lg font-semibold text-ink dark:text-white mb-2">Log out of Marcomedia POS?</p>
-                            <p class="text-sm text-slate-500 dark:text-slate-400 mb-6">You'll need to sign in again to access the dashboard.</p>
-                            <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-                                <button @click="confirmingLogout = false"
-                                    class="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-md px-4 py-2">
-                                    Cancel
-                                </button>
-                                <button @click="playLogoutTransition(document.getElementById('logout-form'))"
-                                    class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md px-4 py-2">
-                                    Log out
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <form id="logout-form" method="POST" action="{{ route('logout') }}" class="hidden">
-                        @csrf
-                    </form>
                 </div>
             </div>
         </header>
@@ -237,6 +234,30 @@
         </main>
     </div>
 </div>
+
+{{-- shadcn-style AlertDialog — confirm before logging out. Opened from the header menu or the sidebar's user menu. --}}
+<div x-show="confirmingLogout" style="display:none;" x-transition.opacity
+     class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" @click.self="confirmingLogout = false" @keydown.escape.window="confirmingLogout = false">
+    <div x-show="confirmingLogout" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+         class="bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 w-full max-w-sm p-6">
+        <p class="text-lg font-semibold text-ink dark:text-white mb-2">Log out of Marcomedia POS?</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mb-6">You'll need to sign in again to access the dashboard.</p>
+        <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <button @click="confirmingLogout = false"
+                class="border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-md px-4 py-2">
+                Cancel
+            </button>
+            <button @click="playLogoutTransition(document.getElementById('logout-form'))"
+                class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md px-4 py-2">
+                Log out
+            </button>
+        </div>
+    </div>
+</div>
+
+<form id="logout-form" method="POST" action="{{ route('logout') }}" class="hidden">
+    @csrf
+</form>
 
 <div id="logout-overlay" class="fixed inset-0 bg-ink z-[9999] flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
     <div class="text-white text-sm flex items-center gap-3">

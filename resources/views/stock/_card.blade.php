@@ -6,9 +6,9 @@
     $store = $card['sealedStore'];
     $warehouse = $card['sealedWarehouse'];
     [$pillText, $pillClass] = [
-        'ok' => ['In stock', 'bg-emerald-100 text-emerald-700'],
-        'low' => ['Low stock', 'bg-amber-100 text-amber-700'],
-        'out' => ['Out of stock', 'bg-red-100 text-red-700'],
+        'ok' => ['In stock', 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'],
+        'low' => ['Low stock', 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'],
+        'out' => ['Out of stock', 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'],
     ][$card['state']];
     $barColor = ['ok' => '#146c84', 'low' => '#d97706', 'out' => '#ef4444'][$card['state']];
     $btnOutline = 'inline-flex items-center gap-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg px-3 py-1.5';

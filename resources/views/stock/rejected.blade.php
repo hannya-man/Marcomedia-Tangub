@@ -10,9 +10,9 @@
     $btnPrimary = 'bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-md px-4 py-2';
     $th = 'text-left text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700';
     $statusStyle = [
-        'rejected' => ['Rejected', 'bg-red-100 text-red-700'],
-        'scrap_sold' => ['Sold as scrap', 'bg-amber-100 text-amber-700'],
-        'discarded' => ['Discarded', 'bg-slate-100 text-slate-600'],
+        'rejected' => ['Rejected', 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'],
+        'scrap_sold' => ['Sold as scrap', 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'],
+        'discarded' => ['Discarded', 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'],
     ];
     $rejectData = $rejects->mapWithKeys(fn ($r) => [$r->id => [
         'id' => $r->id,
