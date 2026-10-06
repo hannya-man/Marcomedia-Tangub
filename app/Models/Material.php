@@ -1,6 +1,7 @@
 <?php
 namespace App\Models;
 
+use App\Services\Inventory\StockAlertService;
 use Illuminate\Database\Eloquent\Model;
 
 class Material extends Model
@@ -8,15 +9,19 @@ class Material extends Model
     // stock_quantity is a cached total of all unclosed batches (store + warehouse).
     // BatchInventoryService keeps it in sync. Never edit it by hand.
     // low_stock_threshold is the reorder point.
+    // sheet_width x sheet_height (feet) is set only for sheet materials, like sintra board:
+    // stock is in sq ft, pack_size is the sq ft in one sheet, and each sheet is its own batch.
     protected $fillable = [
-        'material_category_id', 'name', 'code', 'unit', 'pack_size', 'stock_quantity',
-        'low_stock_threshold', 'reorder_packs', 'default_supplier_id', 'cost_per_unit', 'archived_at',
+        'material_category_id', 'name', 'code', 'unit', 'inventory_type', 'pack_size', 'sheet_width', 'sheet_height',
+        'stock_quantity', 'low_stock_threshold', 'reorder_packs', 'default_supplier_id', 'cost_per_unit', 'archived_at',
     ];
 
     protected $casts = [
         'stock_quantity' => 'decimal:3',
         'low_stock_threshold' => 'decimal:3',
         'pack_size' => 'decimal:3',
+        'sheet_width' => 'decimal:2',
+        'sheet_height' => 'decimal:2',
         'reorder_packs' => 'integer',
         'cost_per_unit' => 'decimal:2',
         'archived_at' => 'datetime',
@@ -90,5 +95,23 @@ class Material extends Model
         if ($this->stock_quantity <= 0) return 'out_of_stock';
         if ($this->stock_quantity <= $this->low_stock_threshold) return 'low_stock';
         return 'in_stock';
+    }
+
+    // Cut by size from whole sheets, like sintra board.
+    public function isSheet(): bool
+    {
+        return (float) $this->sheet_width > 0 && (float) $this->sheet_height > 0;
+    }
+
+    // Sq ft in one sheet: 4 x 8 ft -> 32.
+    public function sheetArea(): float
+    {
+        return round((float) $this->sheet_width * (float) $this->sheet_height, 3);
+    }
+
+    // "4 x 8 ft"
+    public function sheetLabel(): string
+    {
+        return StockAlertService::formatQty($this->sheet_width) . ' x ' . StockAlertService::formatQty($this->sheet_height) . ' ft';
     }
 }

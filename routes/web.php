@@ -67,15 +67,31 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         // receive, enforced in InventoryBatchController's validation.
         Route::post('/inventory-batches', [\App\Http\Controllers\InventoryBatchController::class, 'store'])->name('inventory-batches.store');
 
-        // Raw materials (fabric rolls, blanks, etc.) that get consumed to
-        // produce finished stock — see MaterialController for how this
-        // connects to product variants.
-        Route::get('/materials', [\App\Http\Controllers\MaterialController::class, 'index'])->name('inventory.materials');
-        Route::post('/materials', [\App\Http\Controllers\MaterialController::class, 'store'])->name('materials.store');
+        // Raw materials (fabric rolls, blanks, etc.). They are listed and added on the
+        // Continuous / Discrete pages (StockController); these are the actions their cards use.
         Route::post('/materials/{material}/restock', [\App\Http\Controllers\MaterialController::class, 'adjustStock'])->name('materials.restock');
         Route::delete('/materials/{material}', [\App\Http\Controllers\MaterialController::class, 'destroy'])->name('materials.destroy');
         Route::post('/materials/{material}/restore', [\App\Http\Controllers\MaterialController::class, 'restore'])->name('materials.restore');
         Route::get('/materials/archive', [\App\Http\Controllers\MaterialController::class, 'archive'])->name('materials.archive');
+
+        // The four inventory types: Products (above), Continuous Raw Materials,
+        // Discrete Materials, Scrapped / Rejected Output — see StockController.
+        Route::get('/stock/continuous', [\App\Http\Controllers\StockController::class, 'continuous'])->name('stock.continuous');
+        Route::get('/stock/discrete', [\App\Http\Controllers\StockController::class, 'discrete'])->name('stock.discrete');
+        Route::get('/stock/rejected', [\App\Http\Controllers\StockController::class, 'rejected'])->name('stock.rejected');
+        Route::post('/stock/materials', [\App\Http\Controllers\StockController::class, 'store'])->name('stock.store');
+        Route::post('/stock/materials/{material}/type', [\App\Http\Controllers\StockController::class, 'setType'])->name('stock.type');
+        Route::post('/stock/materials/{material}/pull', [\App\Http\Controllers\StockController::class, 'pull'])->name('stock.pull');
+        // Sheet materials (sintra board): cut a size or take a whole sheet; restock by the sheet.
+        Route::post('/stock/materials/{material}/cut', [\App\Http\Controllers\StockController::class, 'cut'])->name('stock.cut');
+        Route::post('/stock/materials/{material}/restock-sheets', [\App\Http\Controllers\StockController::class, 'restockSheets'])->name('stock.restock-sheets');
+        Route::post('/stock/materials/{material}/open-next', [\App\Http\Controllers\StockController::class, 'openNext'])->name('stock.open-next');
+        Route::post('/stock/materials/{material}/transfer', [\App\Http\Controllers\StockController::class, 'transfer'])->name('stock.transfer');
+        Route::post('/stock/materials/{material}/loss', [\App\Http\Controllers\StockController::class, 'loss'])->name('stock.loss');
+        Route::post('/stock/materials/{material}/count', [\App\Http\Controllers\StockController::class, 'count'])->name('stock.count');
+        Route::post('/stock/rejected', [\App\Http\Controllers\StockController::class, 'storeRejected'])->name('stock.rejected.store');
+        Route::post('/stock/rejected/{rejectedOutput}/scrap', [\App\Http\Controllers\StockController::class, 'sellScrap'])->name('stock.rejected.scrap');
+        Route::post('/stock/rejected/{rejectedOutput}/discard', [\App\Http\Controllers\StockController::class, 'discardRejected'])->name('stock.rejected.discard');
 
         // Categories — same archive-instead-of-delete pattern as everything else.
         Route::get('/categories', [\App\Http\Controllers\CategoryController::class, 'index'])->name('inventory.categories');

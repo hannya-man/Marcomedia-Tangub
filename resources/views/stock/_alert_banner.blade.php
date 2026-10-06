@@ -5,14 +5,10 @@
 @php
     $bannerAlerts = \App\Models\StockAlert::with('material')->active()->mostUrgentFirst()->get();
     $bannerFirst = $bannerAlerts->first();
-    $bannerUrl = route('inventory.materials');
-    if ($bannerFirst && $bannerFirst->material) {
-        $bannerUrl = match ($bannerFirst->material->inventory_type) {
-            'continuous' => route('stock.continuous'),
-            'discrete' => route('stock.discrete'),
-            default => route('inventory.materials'),
-        };
-    }
+    // A material with no type yet behaves as discrete, and both pages list it under "Not set up yet".
+    $bannerUrl = $bannerFirst && $bannerFirst->material && $bannerFirst->material->inventory_type === 'continuous'
+        ? route('stock.continuous')
+        : route('stock.discrete');
 @endphp
 @if($bannerAlerts->isNotEmpty() && ! request()->routeIs('stock.continuous', 'stock.discrete'))
     <a href="{{ $bannerUrl }}"

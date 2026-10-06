@@ -7,6 +7,7 @@ use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Services\Inventory\BatchInventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -102,8 +103,10 @@ class POSController extends Controller
                     'status' => $status,
                 ]);
 
+                $inventory = app(BatchInventoryService::class);
+
                 foreach ($lineItems as $line) {
-                    SaleItem::create([
+                    $saleItem = SaleItem::create([
                         'sale_id' => $sale->id,
                         'product_id' => $line['product']->id,
                         'product_variant_id' => $line['variant']?->id,
@@ -128,6 +131,11 @@ class POSController extends Controller
                             Auth::id()
                         );
                     }
+
+                    // Made-to-order sizes (Track inventory OFF) use their discrete materials
+                    // now, from the active batch. Finished goods used theirs at production,
+                    // and continuous materials are logged by hand (Pull for use).
+                    $inventory->consumeForSaleItem($saleItem, Auth::id());
                 }
 
                 return redirect()->route('pos.receipt', $sale->id)
@@ -187,7 +195,12 @@ class POSController extends Controller
         }
 
         DB::transaction(function () use ($sale) {
+            $inventory = app(BatchInventoryService::class);
+
             foreach ($sale->items as $item) {
+                // Puts back any materials this line took from a batch. Safe to call twice.
+                $inventory->returnSaleItem($item, Auth::id(), "Voided sale {$sale->invoice_number}");
+
                 if ($item->variant) {
                     $item->variant->adjustStock(
                         $item->quantity,

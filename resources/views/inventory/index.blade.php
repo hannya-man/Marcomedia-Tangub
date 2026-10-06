@@ -34,9 +34,6 @@
             <a href="{{ route('inventory.categories') }}" class="text-sm px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg flex items-center gap-1.5">
                 <i data-lucide="tags" class="w-3.5 h-3.5"></i> Categories
             </a>
-            <a href="{{ route('inventory.materials') }}" class="text-sm px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg flex items-center gap-1.5">
-                <i data-lucide="scissors" class="w-3.5 h-3.5"></i> Raw Materials
-            </a>
             <a href="{{ route('inventory.archive') }}" class="text-sm px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg flex items-center gap-1.5">
                 <i data-lucide="archive" class="w-3.5 h-3.5"></i> Archive ({{ $archivedCount }})
             </a>

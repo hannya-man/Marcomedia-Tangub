@@ -30,13 +30,12 @@
 @endif
 
 <div x-data="rejectPage()">
-    @include('stock._tabs')
-
     <div class="flex flex-wrap items-end justify-between gap-4 mb-6">
         <p class="text-sm text-slate-500 dark:text-slate-400 max-w-2xl">
             Production runs that came out wrong because of a machine or process error. The materials they used are
-            logged as waste. If the rejects are sold as scrap or clearance, the money is logged as scrap revenue,
-            but it yields zero profit because the lost material cost cancels it out.
+            logged as waste. If it was a customer's job that you reprinted, enter their invoice: the sale still counts,
+            and the lost material comes off its profit. If the rejects are still sold, the money goes into Sales as its
+            own invoice, but it yields zero profit because the lost material cost cancels it out.
         </p>
         <div class="flex flex-wrap items-end gap-2">
             <form method="GET" action="{{ route('stock.rejected') }}" class="flex items-end gap-2">
@@ -62,10 +61,14 @@
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
             <p class="text-xs text-slate-500 dark:text-slate-400">Material lost</p>
             <p class="text-2xl font-semibold mt-1 {{ $totals['cost'] > 0 ? 'text-red-600' : 'text-ink dark:text-white' }}">₱{{ number_format($totals['cost'], 2) }}</p>
+            @if($totals['reprint_cost'] > 0)
+                <p class="text-xs text-slate-400">₱{{ number_format($totals['reprint_cost'], 2) }} of it off reprinted jobs' profit</p>
+            @endif
         </div>
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-            <p class="text-xs text-slate-500 dark:text-slate-400">Scrap revenue</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Scrap sales</p>
             <p class="text-2xl font-semibold text-ink dark:text-white mt-1">₱{{ number_format($totals['scrap'], 2) }}</p>
+            <p class="text-xs text-slate-400">Counted in Sales</p>
         </div>
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
             <p class="text-xs text-slate-500 dark:text-slate-400">Profit from scrap</p>
@@ -99,7 +102,14 @@
                     </td>
                     <td class="px-3 py-3">
                         <p class="text-ink dark:text-white">{{ $r->item_name }}</p>
-                        <p class="text-xs text-slate-400">{{ $r->quantity }} rejected{!! $r->sale ? ', <span class="whitespace-nowrap">' . e($r->sale->invoice_number) . '</span>' : '' !!}</p>
+                        <p class="text-xs text-slate-400">{{ $r->quantity }} rejected</p>
+                        @if($r->sale)
+                            {{-- Reprinted for this customer: their sale still counts, at less profit --}}
+                            <p class="text-xs text-slate-500 dark:text-slate-400">
+                                Reprinted for <span class="whitespace-nowrap">{{ $r->sale->invoice_number }}</span>:
+                                ₱{{ number_format($r->material_cost, 2) }} off its profit
+                            </p>
+                        @endif
                     </td>
                     <td class="px-3 py-3">
                         <p class="text-ink dark:text-white">{{ $r->cause_label }}</p>
@@ -110,7 +120,9 @@
                     <td class="px-3 py-3">
                         <span class="px-2 py-0.5 rounded-full text-xs whitespace-nowrap {{ $stClass }}">{{ $stText }}</span>
                         @if($r->status === 'scrap_sold')
-                            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 whitespace-nowrap">₱{{ number_format($r->scrap_revenue, 2) }} scrap revenue</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 whitespace-nowrap">
+                                ₱{{ number_format($r->scrap_revenue, 2) }}{{ $r->scrapSale ? ' in Sales, ' . $r->scrapSale->invoice_number : ' scrap revenue' }}
+                            </p>
                         @endif
                     </td>
                     <td class="px-3 py-3 text-right whitespace-nowrap">₱0.00</td>
@@ -153,7 +165,7 @@
                     </div>
                     <div style="width:7rem;">
                         <label class="{{ $label }}">How many</label>
-                        <input type="number" min="1" name="quantity" x-model="qty" @input="fill()" required class="{{ $input }}">
+                        <input type="number" min="1" name="quantity" x-model="qty" @input="fill(); lines.forEach(l => resize(l))" required class="{{ $input }}">
                     </div>
                 </div>
                 <div>
@@ -177,28 +189,72 @@
                 <div>
                     <p class="{{ $label }}">Materials used up</p>
                     <template x-for="(line, i) in lines" :key="i">
-                        <div class="flex gap-2 mt-1">
-                            <select :name="'lines[' + i + '][material_id]'" x-model="line.material_id"
-                                class="flex-1 min-w-0 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-3 py-2">
-                                <option value="">Pick a material</option>
-                                @foreach($materials as $mat)
-                                    <option value="{{ $mat->id }}">{{ $mat->name }}{{ $mat->inventory_type === 'continuous' ? ' (continuous)' : '' }}</option>
-                                @endforeach
-                            </select>
-                            <div class="flex gap-1" style="width:9rem;">
-                                <input type="number" step="0.001" min="0" :name="'lines[' + i + '][quantity]'" x-model="line.quantity"
-                                    :placeholder="unit(line.material_id) || 'qty'"
-                                    class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-3 py-2">
-                                <button type="button" @click="removeLine(i)" class="text-lg text-slate-400 hover:bg-red-50 rounded-lg px-2" aria-label="Remove line">&times;</button>
+                        <div class="mt-1">
+                            <div class="flex gap-2">
+                                <select :name="'lines[' + i + '][material_id]'" x-model="line.material_id" @change="resize(line)"
+                                    class="flex-1 min-w-0 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-3 py-2">
+                                    <option value="">Pick a material</option>
+                                    @foreach($materials as $mat)
+                                        <option value="{{ $mat->id }}">{{ $mat->name }}{{ $mat->isSheet() ? ' (sheet, sq ft)' : ($mat->inventory_type === 'continuous' ? ' (continuous)' : '') }}</option>
+                                    @endforeach
+                                </select>
+                                <div class="flex gap-1" style="width:9rem;">
+                                    <input type="number" step="0.001" min="0" :name="'lines[' + i + '][quantity]'" x-model="line.quantity"
+                                        :placeholder="unit(line.material_id) || 'qty'"
+                                        class="w-full text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-3 py-2">
+                                    <button type="button" @click="removeLine(i)" class="text-lg text-slate-400 hover:bg-red-50 rounded-lg px-2" aria-label="Remove line">&times;</button>
+                                </div>
                             </div>
+                            {{-- Sheet materials (sintra board): the size of one spoiled piece works out the sq ft --}}
+                            <template x-if="sheetOf(line.material_id)">
+                                <div class="flex flex-wrap items-center gap-1 mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    <span>Size of one piece</span>
+                                    <input type="number" step="0.01" min="0" x-model="line.w" @input="resize(line)" aria-label="Width"
+                                        class="text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-2 py-1" style="width:4.5rem;">
+                                    <span>x</span>
+                                    <input type="number" step="0.01" min="0" x-model="line.h" @input="resize(line)" aria-label="Height"
+                                        class="text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-2 py-1" style="width:4.5rem;">
+                                    <select x-model="line.unit" @change="resize(line)" aria-label="Unit"
+                                        class="text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-2 py-1">
+                                        <option value="ft">ft</option>
+                                        <option value="in">in</option>
+                                    </select>
+                                    <span x-show="line.w && line.h">x <span x-text="qty || 1"></span> pcs = <span x-text="line.quantity"></span> sq ft</span>
+                                </div>
+                            </template>
                         </div>
                     </template>
                     <button type="button" @click="addLine()" class="text-xs text-brand-600 mt-2">+ Add a material</button>
-                    <p class="text-xs text-slate-400 mt-1">Continuous materials (fabric, ink) can't be calculated: type how much was used.</p>
+                    <p class="text-xs text-slate-400 mt-1">Continuous materials (fabric, ink) can't be calculated: type how much was used. For sheet materials, enter the size of one spoiled piece.</p>
                 </div>
                 <div>
-                    <label class="{{ $label }}">Invoice no. (optional)</label>
+                    <label class="{{ $label }}">Reprinted for invoice (optional)</label>
                     <input type="text" name="invoice" maxlength="30" placeholder="INV-..." class="{{ $input }}">
+                    <p class="text-xs text-slate-400 mt-1">If it was a customer's job: their sale still counts, and this lost material comes off its profit.</p>
+                </div>
+                <div class="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 space-y-2">
+                    <label class="flex items-start gap-2 cursor-pointer">
+                        <input type="checkbox" x-model="soldNow" class="mt-0.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500">
+                        <span>
+                            <span class="block text-sm text-ink dark:text-white">It was still sold</span>
+                            <span class="block text-xs text-slate-500 dark:text-slate-400">The money goes into Sales as its own invoice and into your cash count. It counts as ₱0.00 profit.</span>
+                        </span>
+                    </label>
+                    <template x-if="soldNow">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="{{ $label }}">Sold for (₱)</label>
+                                <input type="number" step="0.01" min="0.01" name="scrap_revenue" required class="{{ $input }}">
+                            </div>
+                            <div>
+                                <label class="{{ $label }}">Paid by</label>
+                                <select name="payment_method" class="{{ $input }}">
+                                    <option value="cash">Cash</option>
+                                    <option value="gcash">GCash</option>
+                                </select>
+                            </div>
+                        </div>
+                    </template>
                 </div>
                 <div class="flex justify-end gap-2 pt-2">
                     <button type="button" @click="hide()" class="{{ $btnCancel }}">Cancel</button>
@@ -212,12 +268,21 @@
                 <div>
                     <p class="text-lg font-semibold text-ink dark:text-white">Sold as scrap</p>
                     <p class="text-sm text-slate-500 dark:text-slate-400">
-                        <span x-text="r ? r.ref + ', ' + r.item : ''"></span>. The money is logged as scrap revenue and counts as ₱0.00 profit.
+                        <span x-text="r ? r.ref + ', ' + r.item : ''"></span>. The money goes into Sales as its own invoice and into your cash count. It counts as ₱0.00 profit.
                     </p>
                 </div>
-                <div>
-                    <label class="{{ $label }}">Scrap revenue (₱)</label>
-                    <input type="number" step="0.01" min="0" name="scrap_revenue" required class="{{ $input }}">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="{{ $label }}">Sold for (₱)</label>
+                        <input type="number" step="0.01" min="0.01" name="scrap_revenue" required class="{{ $input }}">
+                    </div>
+                    <div>
+                        <label class="{{ $label }}">Paid by</label>
+                        <select name="payment_method" class="{{ $input }}">
+                            <option value="cash">Cash</option>
+                            <option value="gcash">GCash</option>
+                        </select>
+                    </div>
                 </div>
                 <div>
                     <label class="{{ $label }}">Note (optional)</label>
@@ -247,7 +312,14 @@
 <script>
 const rejectData = @js($rejectData);
 const recipes = @js($recipes);
-const materialList = @js($materials->map(fn ($m) => ['id' => $m->id, 'unit' => $m->unit])->values());
+const materialList = @js($materials->map(fn ($m) => ['id' => $m->id, 'unit' => $m->unit, 'sheet' => $m->isSheet()])->values());
+// "Mistake" on a sheet material's card opens the form with that material filled in.
+const recordFor = @js($recordFor);
+
+// One material line. w, h and unit are the size helper for sheet materials; only quantity is sent.
+function newLine(materialId = '') {
+    return { material_id: String(materialId), quantity: '', w: '', h: '', unit: 'ft' };
+}
 
 function rejectPage() {
     return {
@@ -256,7 +328,18 @@ function rejectPage() {
         variant: '',
         qty: 1,
         itemName: '',
-        lines: [{ material_id: '', quantity: '' }],
+        soldNow: false,
+        lines: [newLine()],
+
+        init() {
+            if (!recordFor) return;
+            this.show('record');
+            this.lines = [newLine(recordFor)];
+            // Saving comes back to this page. Without this, the form would open again.
+            const url = new URL(window.location.href);
+            url.searchParams.delete('record');
+            window.history.replaceState(null, '', url);
+        },
 
         show(modal, id = null) {
             this.r = id ? rejectData[id] : null;
@@ -265,7 +348,8 @@ function rejectPage() {
                 this.variant = '';
                 this.qty = 1;
                 this.itemName = '';
-                this.lines = [{ material_id: '', quantity: '' }];
+                this.soldNow = false;
+                this.lines = [newLine()];
             }
         },
 
@@ -279,13 +363,13 @@ function rejectPage() {
             const n = parseInt(this.qty) || 1;
             this.itemName = v.label;
             this.lines = v.lines.map(l => ({
-                material_id: String(l.material_id),
+                ...newLine(l.material_id),
                 quantity: (l.fixed && !l.continuous) ? Math.round(l.per_unit * n * 1000) / 1000 : '',
             }));
-            if (!this.lines.length) this.lines = [{ material_id: '', quantity: '' }];
+            if (!this.lines.length) this.lines = [newLine()];
         },
 
-        addLine() { this.lines.push({ material_id: '', quantity: '' }); },
+        addLine() { this.lines.push(newLine()); },
 
         removeLine(i) {
             this.lines.splice(i, 1);
@@ -295,6 +379,19 @@ function rejectPage() {
         unit(id) {
             const m = materialList.find(x => String(x.id) === String(id));
             return m ? m.unit : '';
+        },
+
+        sheetOf(id) {
+            const m = materialList.find(x => String(x.id) === String(id));
+            return !!(m && m.sheet);
+        },
+
+        // Sheet materials: sq ft lost = one piece's size x how many came out rejected.
+        resize(line) {
+            if (!this.sheetOf(line.material_id)) return;
+            const perFoot = line.unit === 'in' ? 12 : 1;
+            const area = (parseFloat(line.w) / perFoot) * (parseFloat(line.h) / perFoot) * (parseInt(this.qty) || 1);
+            if (area > 0) line.quantity = Math.round(area * 1000) / 1000;
         },
     };
 }

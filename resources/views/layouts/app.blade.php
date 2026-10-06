@@ -77,8 +77,9 @@
          class="fixed inset-0 bg-black/50 z-30 lg:hidden" style="display:none;"></div>
 
     {{-- ===================== SIDEBAR ===================== --}}
+    {{-- Desktop: sticky and one screen tall, so only the page scrolls. Phone: slide-out drawer. --}}
     <aside :class="mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
-           class="w-64 bg-ink flex-shrink-0 flex flex-col min-h-screen fixed lg:static inset-y-0 left-0 z-40 transition-transform duration-300 ease-in-out">
+           class="w-64 bg-ink flex-shrink-0 flex flex-col min-h-screen fixed lg:sticky lg:top-0 lg:h-screen inset-y-0 left-0 z-40 transition-transform duration-300 ease-in-out">
         <div class="flex items-center justify-between gap-3 px-5 h-16 border-b border-white/10">
             <div class="flex items-center gap-3">
                 <img src="{{ asset('images/marcomedia-logo.png') }}" alt="Marcomedia" class="w-9 h-9 rounded-full object-cover flex-shrink-0">
@@ -114,11 +115,19 @@
 
             @if(in_array(auth()->user()->role, ['admin', 'cashier']))
             <p class="px-3 pb-1 pt-4 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Inventory</p>
+            {{-- The four inventory types. The materials archive belongs to whichever page opened it. --}}
+            @php $archiveFrom = request()->routeIs('materials.archive') ? (request('from') === 'discrete' ? 'discrete' : 'continuous') : null; @endphp
             <a href="{{ route('inventory.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('inventory.index') || request()->routeIs('inventory.archive') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
-                <i data-lucide="package" class="w-4 h-4"></i><span>Stock</span>
+                <i data-lucide="package" class="w-4 h-4"></i><span>Products</span>
             </a>
-            <a href="{{ route('inventory.materials') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('inventory.materials') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
-                <i data-lucide="scissors" class="w-4 h-4"></i><span>Raw Materials</span>
+            <a href="{{ route('stock.continuous') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('stock.continuous') || $archiveFrom === 'continuous' ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="ruler" class="w-4 h-4"></i><span>Continuous Raw Materials</span>
+            </a>
+            <a href="{{ route('stock.discrete') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('stock.discrete') || $archiveFrom === 'discrete' ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="boxes" class="w-4 h-4"></i><span>Discrete Materials</span>
+            </a>
+            <a href="{{ route('stock.rejected') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('stock.rejected') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="recycle" class="w-4 h-4"></i><span>Scrapped / Rejected</span>
             </a>
             @endif
 
@@ -209,6 +218,8 @@
                 </div>
             </div>
         </header>
+
+        @include('stock._alert_banner')
 
         @if (session('success'))
             <div class="mx-8 mt-4 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 px-4 py-3 text-sm">

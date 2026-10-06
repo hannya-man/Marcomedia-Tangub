@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\RejectedOutput;
 use App\Models\SaleItem;
 use App\Models\Supplier;
 use Illuminate\Support\Carbon;
@@ -21,8 +22,8 @@ use Illuminate\Support\Str;
  * The only place batch stock changes.
  *
  * Rules:
- *  1. Stock comes in only as batches: one sealed batch per pack received on a PO
- *     (or opening stock recorded at go-live).
+ *  1. Stock comes in only as batches: one sealed batch per pack received on a PO,
+ *     or one sealed batch per Restock without a PO (recordOpeningStock).
  *  2. One open (active) batch per material. Opening a new one closes the old one.
  *  3. Jobs and production runs take from the active batch. When it reaches 0 it closes
  *     and the oldest sealed pack in the store opens, so a sale is never blocked by paperwork.
@@ -30,6 +31,15 @@ use Illuminate\Support\Str;
  *     row in batch_adjustments. Every batch balances:
  *        opening_quantity - SUM(consumptions) + SUM(adjustments) = remaining_quantity
  *  5. materials.stock_quantity = total of unclosed batches. Alerts are re-checked on every change.
+ *  6. Two kinds of material (materials.inventory_type):
+ *       continuous - fabric rolls, thread, liquids. Never deducted per item: jobs and production
+ *                    runs skip them, and staff log each pull with pullForUse().
+ *                    A sheet material (sintra board) is continuous, in sq ft, one batch per sheet.
+ *                    Staff log each job with cutFromSheet() or useWholeSheet().
+ *       discrete   - PVC cards, RFID chips, fasteners. Counted 1 to 1 and deducted automatically
+ *                    by jobs and production runs. A material with no type yet behaves as discrete.
+ *  7. A production run that fails (machine or process error) is a rejected output. Its materials
+ *     are logged as 'wasted'. Scrap sold from it is revenue, but never profit.
  *
  * Lock order is always: material -> purchase order -> batches. Same order everywhere = no deadlocks.
  */
@@ -189,7 +199,10 @@ class BatchInventoryService
         });
     }
 
-    /** Stock already on the shelf at go-live (no PO). Every delivery after that uses receive(). */
+    /**
+     * Stock that comes in without a purchase order: opening stock at go-live, or Restock.
+     * It still becomes its own sealed batch with a batch number, e.g. OCT-2026-LF-3.
+     */
     public function recordOpeningStock(Material $material, float $quantity, string $location, ?int $userId, ?float $costPerUnit = null, $receivedAt = null): InventoryBatch
     {
         $this->assertLocation($location);
@@ -307,7 +320,7 @@ class BatchInventoryService
      * (close_reason = empty) and the oldest sealed pack in the store opens, until the
      * full amount is taken. All or nothing: if the store is short, nothing is deducted.
      *
-     * @param array $link sale_id, sale_item_id, inventory_movement_id, revenue
+     * @param array $link sale_id, sale_item_id, inventory_movement_id, revenue, note
      * @return Collection BatchConsumption rows. Two rows = the job crossed into a new pack.
      */
     public function consume(Material $material, float $quantity, array $link, ?int $userId): Collection
@@ -358,6 +371,8 @@ class BatchInventoryService
                         'inventory_movement_id' => $link['inventory_movement_id'] ?? null,
                         'quantity_consumed' => $take,
                         'revenue' => $share,
+                        'user_id' => $userId,
+                        'note' => $link['note'] ?? null,
                         'created_at' => now(),
                     ]));
                     $batch->remaining_quantity = $this->q($batch->remaining_quantity - $take);
@@ -378,8 +393,9 @@ class BatchInventoryService
     }
 
     /**
-     * Made-to-order line (product with Track inventory OFF): take every material in the
+     * Made-to-order line (product with Track inventory OFF): take every discrete material in the
      * size's bill of materials from its active batch, linked to this line item.
+     * Continuous materials are skipped: they are logged by hand with pullForUse().
      * Finished goods (Track inventory ON) return nothing here: their materials were used at production.
      *
      * @param array $offcutIds offcuts staff picked for this job (one per material). That material
@@ -399,7 +415,10 @@ class BatchInventoryService
 
         return DB::transaction(function () use ($item, $userId, $offcutIds) {
             $variant = ProductVariant::findOrFail($item->product_variant_id);
-            $lines = $variant->materials()->withPivot('consumption_type')->get()->values();
+            // Continuous materials (fabric, ink) are never deducted per item: staff log each pull.
+            $lines = $variant->materials()->withPivot('consumption_type')->get()
+                ->reject(function ($material) { return $material->inventory_type === 'continuous'; })
+                ->values();
             if ($lines->isEmpty()) {
                 if ($offcutIds) {
                     throw new InventoryException("{$item->item_name} has no materials listed, so it can't use an offcut.");
@@ -440,7 +459,7 @@ class BatchInventoryService
         });
     }
 
-    /** Finished goods produced ahead (Track inventory ON): materials are used at stock_in. */
+    /** Finished goods produced ahead (Track inventory ON): discrete materials are used at stock_in. */
     public function consumeForProduction(int $variantId, int $units, ?int $movementId, ?int $userId): Collection
     {
         if ($units < 1) {
@@ -449,7 +468,9 @@ class BatchInventoryService
 
         return DB::transaction(function () use ($variantId, $units, $movementId, $userId) {
             $variant = ProductVariant::findOrFail($variantId);
-            $lines = $variant->materials()->withPivot('consumption_type')->get();
+            // Continuous materials (fabric, ink) are never deducted per item: staff log each pull.
+            $lines = $variant->materials()->withPivot('consumption_type')->get()
+                ->reject(function ($material) { return $material->inventory_type === 'continuous'; });
             $this->lockMaterials($lines->pluck('id')->all());
 
             $rows = collect();
@@ -590,6 +611,235 @@ class BatchInventoryService
             $offcut->update(['status' => 'discarded', 'discarded_at' => now()]);
 
             return $offcut;
+        });
+    }
+
+    // =====================================================================
+    // 4b. Continuous materials and rejected output
+    // =====================================================================
+
+    /**
+     * A continuous raw material (fabric, thread, ink) pulled for use. These are never
+     * deducted per item, so staff log what they take. It comes out of the active batch.
+     */
+    public function pullForUse(Material $material, float $quantity, ?string $note, ?int $userId, ?int $saleId = null): Collection
+    {
+        $note = trim((string) $note);
+
+        return $this->consume($material, $quantity, [
+            'sale_id' => $saleId,
+            'note' => $note !== '' ? Str::limit($note, 250) : 'Pulled for use',
+        ], $userId);
+    }
+
+    // =====================================================================
+    // 4c. Sheet materials (sintra board)
+    // =====================================================================
+
+    /**
+     * Sheets come in whole, and each sheet is its own sealed batch holding its area in sq ft:
+     * OCT-2026-SB3-1, OCT-2026-SB3-2, ... That way a job can take a whole sheet, or cut its
+     * size from the open sheet and leave the rest for the next jobs.
+     */
+    public function restockSheets(Material $material, int $sheets, string $location, ?int $userId, ?float $costPerSheet = null): Collection
+    {
+        $this->assertLocation($location);
+        if ($sheets < 1) {
+            throw new InventoryException('Enter how many sheets came in.');
+        }
+
+        return DB::transaction(function () use ($material, $sheets, $location, $userId, $costPerSheet) {
+            $material = $this->lockMaterial($material->id);
+            $area = $this->sheetArea($material);
+            if ($material->archived_at) {
+                throw new InventoryException("{$material->name} is archived.");
+            }
+
+            $batches = collect();
+            for ($i = 0; $i < $sheets; $i++) {
+                $batches->push($this->createBatch($material, now(), [
+                    'purchase_order_item_id' => null,
+                    'location' => $location,
+                    'opening_quantity' => $area,
+                    'remaining_quantity' => $area,
+                    'cost_per_unit' => $costPerSheet !== null ? round($costPerSheet / $area, 2) : $material->cost_per_unit,
+                    'received_by' => $userId,
+                ]));
+            }
+
+            $this->afterStockChange($material);
+
+            return $batches;
+        });
+    }
+
+    /**
+     * A job cut to size from the open sheet ("by batch"): only its area comes off, and the rest
+     * of the sheet stays for the next jobs. $unit is 'in' or 'ft'; the area is in sq ft.
+     * If the open sheet runs out, the rest of it goes to this job and the next sheet opens.
+     */
+    public function cutFromSheet(Material $material, float $width, float $height, string $unit, int $pieces, ?string $note, ?int $userId, ?int $saleId = null): Collection
+    {
+        $this->sheetArea($material);   // sheet materials only
+        if ($width <= 0 || $height <= 0 || $pieces < 1) {
+            throw new InventoryException('Enter the width, the height and how many pieces.');
+        }
+
+        $perFoot = $unit === 'in' ? 12 : 1;
+        $w = $width / $perFoot;
+        $h = $height / $perFoot;
+        $size = "{$this->fmt($width)} x {$this->fmt($height)} {$unit}";
+        if (max($w, $h) - max((float) $material->sheet_width, (float) $material->sheet_height) > self::EPSILON
+            || min($w, $h) - min((float) $material->sheet_width, (float) $material->sheet_height) > self::EPSILON) {
+            throw new InventoryException("A {$size} piece doesn't fit on one {$material->sheetLabel()} sheet." . ($unit === 'ft' ? ' Was it in inches?' : ''));
+        }
+
+        $note = trim((string) $note);
+
+        return $this->consume($material, $w * $h * $pieces, [
+            'sale_id' => $saleId,
+            'note' => Str::limit("Cut {$size}" . ($pieces > 1 ? ", {$pieces} pcs" : '') . ($note !== '' ? ": {$note}" : ''), 250),
+        ], $userId);
+    }
+
+    /**
+     * A job that takes a whole sheet ("full").
+     *   rest - everything left on the open sheet goes to this job, and the sheet closes.
+     *   new  - the next sealed sheet in the store goes to this job whole, and the open sheet
+     *          stays open for small cuts. The new sheet goes straight from sealed to used up,
+     *          so there is still only one open batch.
+     */
+    public function useWholeSheet(Material $material, string $which, ?string $note, ?int $userId, ?int $saleId = null): Collection
+    {
+        $this->sheetArea($material);   // sheet materials only
+        if (!in_array($which, ['rest', 'new'], true)) {
+            throw new InventoryException('Pick the rest of the open sheet or a new sheet.');
+        }
+        $note = trim((string) $note);
+
+        return DB::transaction(function () use ($material, $which, $note, $userId, $saleId) {
+            $material = $this->lockMaterial($material->id);
+            if ($material->archived_at) {
+                throw new InventoryException("{$material->name} is archived and can't be used.");
+            }
+
+            if ($which === 'rest') {
+                $open = $this->currentOpenBatch($material->id);
+                if (!$open) {
+                    throw new InventoryException("{$material->name} has no open sheet. Take a new sheet instead.");
+                }
+
+                return $this->consume($material, (float) $open->remaining_quantity, [
+                    'sale_id' => $saleId,
+                    'note' => Str::limit("Whole sheet (the rest of {$open->batch_number})" . ($note !== '' ? ": {$note}" : ''), 250),
+                ], $userId);
+            }
+
+            $sheet = InventoryBatch::where('material_id', $material->id)
+                ->where('location', 'store')->where('status', 'unopened')
+                ->orderBy('received_at')->orderBy('id')
+                ->lockForUpdate()->first();
+            if (!$sheet) {
+                $warehouse = InventoryBatch::where('material_id', $material->id)->where('location', 'warehouse')->where('status', 'unopened')->count();
+                throw new InventoryException("No sealed sheet of {$material->name} in the store."
+                    . ($warehouse ? " {$warehouse} in the warehouse: move one to the store first." : ''));
+            }
+
+            $row = $sheet->consumptions()->create([
+                'sale_id' => $saleId,
+                'quantity_consumed' => $this->q($sheet->remaining_quantity),
+                'revenue' => 0,
+                'user_id' => $userId,
+                'note' => Str::limit('Whole sheet' . ($note !== '' ? ": {$note}" : ''), 250),
+                'created_at' => now(),
+            ]);
+
+            // Saved in one go by markClosed().
+            $sheet->remaining_quantity = 0;
+            $sheet->opened_at = now();
+            $sheet->open_method = 'manual';
+            $sheet->opened_by = $userId;
+            $this->markClosed($sheet, 'empty', $userId);
+            $this->afterStockChange($material);
+
+            return collect([$row]);
+        });
+    }
+
+    /**
+     * A production run that came out wrong (machine or process error).
+     *
+     * @param array $data  item_name, quantity, cause (machine, process, other), reason,
+     *                     product_variant_id and sale_id (both optional)
+     * @param array $lines each: material_id, quantity used up by the rejects
+     *
+     * Each material is taken from its active batch (crossing into the next sealed pack if
+     * needed) and logged as 'wasted', linked to the rejected output. All or nothing.
+     */
+    public function recordRejectedOutput(array $data, array $lines, ?int $userId): RejectedOutput
+    {
+        $reason = trim((string) ($data['reason'] ?? ''));
+        $itemName = trim((string) ($data['item_name'] ?? ''));
+        if ($itemName === '') {
+            throw new InventoryException('Say what was being made, e.g. "PVC ID".');
+        }
+        if ($reason === '') {
+            throw new InventoryException('Say what went wrong, e.g. "printer jammed".');
+        }
+
+        $needs = [];
+        foreach ($lines as $line) {
+            $id = (int) ($line['material_id'] ?? 0);
+            $qty = $this->q($line['quantity'] ?? 0);
+            if ($id > 0 && $qty > 0) {
+                $needs[$id] = $this->q(($needs[$id] ?? 0) + $qty);
+            }
+        }
+        if (!$needs) {
+            throw new InventoryException('Add at least one material and how much the rejects used up.');
+        }
+
+        return DB::transaction(function () use ($data, $needs, $reason, $itemName, $userId) {
+            $this->lockMaterials(array_keys($needs));
+
+            // Check every material first, so one short material saves nothing.
+            foreach ($needs as $id => $qty) {
+                $material = Material::findOrFail($id);
+                if ($material->archived_at) {
+                    throw new InventoryException("{$material->name} is archived.");
+                }
+                $available = $this->storeAvailable($id);
+                if ($qty - $available > self::EPSILON) {
+                    throw new InventoryException("Not enough {$material->name} in the store: the rejects used {$this->fmt($qty)} {$material->unit}, the store has {$this->fmt($available)}.");
+                }
+            }
+
+            $rejected = RejectedOutput::create([
+                'reference' => 'NEW-' . uniqid(),
+                'item_name' => Str::limit($itemName, 150),
+                'product_variant_id' => $data['product_variant_id'] ?? null,
+                'quantity' => max(1, (int) ($data['quantity'] ?? 1)),
+                'cause' => array_key_exists($data['cause'] ?? '', RejectedOutput::CAUSES) ? $data['cause'] : 'other',
+                'reason' => Str::limit($reason, 250),
+                'sale_id' => $data['sale_id'] ?? null,
+                'status' => 'rejected',
+                'user_id' => $userId,
+            ]);
+            // REJ-2026-0001. Built from the row id, so two people saving at once never clash.
+            $rejected->update(['reference' => 'REJ-' . now()->format('Y') . '-' . str_pad((string) $rejected->id, 4, '0', STR_PAD_LEFT)]);
+
+            $cost = 0.0;
+            foreach ($needs as $id => $qty) {
+                $material = Material::findOrFail($id);
+                $cost += $this->takeAsWaste($material, $qty, "Rejected output {$rejected->reference}: {$reason}", $userId, [
+                    'rejected_output_id' => $rejected->id,
+                ]);
+                $this->afterStockChange($material);
+            }
+
+            $rejected->update(['material_cost' => round($cost, 2)]);
+
+            return $rejected;
         });
     }
 
@@ -760,6 +1010,30 @@ class BatchInventoryService
             'close_reason' => $reason,
             'closed_by' => $userId,
         ])->save();
+    }
+
+    // Like consume(), but logged as 'wasted': material used up by a rejected output.
+    // Returns what it cost. The caller locks the material row.
+    private function takeAsWaste(Material $material, float $quantity, string $reason, ?int $userId, array $links): float
+    {
+        $left = $this->q($quantity);
+        $cost = 0.0;
+
+        while ($left > self::EPSILON) {
+            $batch = $this->currentOpenBatch($material->id) ?? $this->autoOpenNext($material, $userId);
+            $take = $this->q(min($left, (float) $batch->remaining_quantity));
+            $left = $this->q($left - $take);
+
+            if ($take > 0) {
+                $this->applyAdjustment($batch, 'wasted', -$take, $reason, $userId, $links);
+                $cost += $take * (float) ($batch->cost_per_unit ?? $material->cost_per_unit ?? 0);
+            }
+            if ($batch->remaining_quantity <= self::EPSILON) {
+                $this->markClosed($batch, 'empty', $userId);
+            }
+        }
+
+        return $cost;
     }
 
     // Leftover on a batch being closed must become offcuts and/or a write-off with a reason.
@@ -963,6 +1237,16 @@ class BatchInventoryService
         if (!in_array($location, ['store', 'warehouse'], true)) {
             throw new InventoryException('Location must be store or warehouse.');
         }
+    }
+
+    // Sq ft in one sheet. Also stops sheet actions on a material that isn't cut from sheets.
+    private function sheetArea(Material $material): float
+    {
+        if (!$material->isSheet()) {
+            throw new InventoryException("{$material->name} is not cut from sheets.");
+        }
+
+        return $material->sheetArea();
     }
 
     private function q($value): float

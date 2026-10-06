@@ -9,16 +9,20 @@
 @endif
 
 <div x-data="stockPage()">
-    @include('stock._tabs')
-
     <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
         <p class="text-sm text-slate-500 dark:text-slate-400 max-w-2xl">
             Bulk stock measured by length or volume, like fabric rolls, thread and ink. It can't be deducted per item, so log each pull for use: it comes out of the active batch.
+            Sheet materials like sintra board are logged per job: cut a size from the open sheet, or take a whole sheet.
         </p>
-        <button type="button" @click="show('add')"
-            class="text-sm px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-1.5 flex-shrink-0">
-            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add continuous material
-        </button>
+        <div class="flex gap-2 flex-shrink-0">
+            <a href="{{ route('materials.archive', ['from' => 'continuous']) }}" class="text-sm px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg flex items-center gap-1.5">
+                <i data-lucide="archive" class="w-3.5 h-3.5"></i> Archive ({{ $archivedCount }})
+            </a>
+            <button type="button" @click="show('add')"
+                class="text-sm px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-1.5">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add continuous material
+            </button>
+        </div>
     </div>
 
     @include('stock._setup')

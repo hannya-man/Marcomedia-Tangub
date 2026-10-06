@@ -2,63 +2,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\Material;
-use App\Models\Supplier;
 use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\InventoryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
+// Actions on one material. Materials are listed and added on the Continuous and
+// Discrete pages (StockController), whose cards call restock / archive here.
 class MaterialController extends Controller
 {
-    public function index()
-    {
-        // Variants show which finished sizes each material makes. activeBatch shows the pack in use.
-        $materials = Material::with(['variants.product', 'activeBatch', 'defaultSupplier'])
-            ->whereNull('archived_at')
-            ->withCount('variants')
-            ->orderBy('name')->get();
-        $archivedCount = Material::whereNotNull('archived_at')->count();
-        $suppliers = Supplier::active()->orderBy('name')->get();
-
-        return view('inventory.materials', compact('materials', 'archivedCount', 'suppliers'));
-    }
-
-    // New material. Stock already on the shelf becomes its first batch instead of a typed-in number.
-    // The old form field "stock_quantity" still works and is treated as opening stock.
-    public function store(Request $request, BatchInventoryService $inventory)
-    {
-        $validated = $request->validate($this->rules() + [
-            'opening_stock' => 'nullable|numeric|min:0',
-            'stock_quantity' => 'nullable|numeric|min:0',
-            'opening_location' => 'nullable|in:store,warehouse',
-        ]);
-
-        $opening = (float) ($validated['opening_stock'] ?? $validated['stock_quantity'] ?? 0);
-        $fields = array_filter(
-            collect($validated)->except(['opening_stock', 'stock_quantity', 'opening_location'])->all(),
-            function ($value) { return $value !== null; }
-        );
-
-        try {
-            DB::transaction(function () use ($inventory, $fields, $opening, $validated) {
-                $material = Material::create($fields + ['stock_quantity' => 0]);
-                $inventory->ensureCode($material);
-
-                if ($opening > 0) {
-                    $inventory->recordOpeningStock($material, $opening, $validated['opening_location'] ?? 'store', Auth::id());
-                } else {
-                    $inventory->refreshMaterial($material);
-                }
-            });
-        } catch (InventoryException $e) {
-            return back()->withInput()->with('error', $e->getMessage());
-        }
-
-        return redirect()->route('inventory.materials')->with('success', 'Material added.');
-    }
-
     // Reorder settings. Alerts are re-checked right away, so a new reorder point takes effect now.
     public function update(Request $request, Material $material, BatchInventoryService $inventory)
     {
@@ -73,11 +26,33 @@ class MaterialController extends Controller
         return back()->with('success', "{$material->name} updated.");
     }
 
-    // The old Restock button typed a number straight into stock. Stock now only comes in
-    // through Receive on a purchase order, so every unit belongs to a batch.
-    public function adjustStock(Material $material)
+    // Restock without a purchase order. The new stock still becomes its own sealed batch
+    // with a batch number (e.g. OCT-2026-LF-3), so nothing is typed straight into stock.
+    public function adjustStock(Request $request, Material $material, BatchInventoryService $inventory)
     {
-        return back()->with('error', "Restock is now done by receiving a purchase order, so the new stock gets a batch number. Use Receive on the PO for {$material->name}.");
+        if ($material->archived_at) {
+            return back()->with('error', "{$material->name} is archived. Restore it first.");
+        }
+
+        $validated = $request->validate([
+            'quantity' => 'required|numeric|min:0.001',
+            'location' => 'nullable|in:store,warehouse',
+            'cost_per_unit' => 'nullable|numeric|min:0',
+        ]);
+
+        try {
+            $batch = $inventory->recordOpeningStock(
+                $material,
+                (float) $validated['quantity'],
+                $validated['location'] ?? 'store',
+                Auth::id(),
+                isset($validated['cost_per_unit']) ? (float) $validated['cost_per_unit'] : null
+            );
+        } catch (InventoryException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', "Restocked {$material->name}: batch {$batch->batch_number}.");
     }
 
     // "Delete" archives instead of removing the record. Its stock alerts resolve.
@@ -97,11 +72,13 @@ class MaterialController extends Controller
         return back()->with('success', "'{$material->name}' restored.");
     }
 
-    public function archive()
+    // Every archived material. "from" is the page that opened it, so Back returns there.
+    public function archive(Request $request)
     {
         $archivedMaterials = Material::whereNotNull('archived_at')->orderByDesc('archived_at')->get();
+        $from = $request->query('from') === 'discrete' ? 'discrete' : 'continuous';
 
-        return view('inventory.materials-archive', compact('archivedMaterials'));
+        return view('inventory.materials-archive', compact('archivedMaterials', 'from'));
     }
 
     private function rules(?Material $material = null): array

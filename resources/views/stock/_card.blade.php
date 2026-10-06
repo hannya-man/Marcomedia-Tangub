@@ -13,12 +13,23 @@
     $barColor = ['ok' => '#146c84', 'low' => '#d97706', 'out' => '#ef4444'][$card['state']];
     $btnOutline = 'inline-flex items-center gap-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg px-3 py-1.5';
     $btnPrimary = 'inline-flex items-center gap-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-3 py-1.5';
+    $btnDanger = 'inline-flex items-center gap-1.5 text-sm border border-red-200 dark:border-red-900 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg px-3 py-1.5';
+    $otherKind = $kind === 'continuous' ? 'discrete' : 'continuous';
+    // Sheet materials (sintra board): stock in sq ft, one batch per sheet, used per job.
+    $isSheet = $kind === 'continuous' && $m->isSheet();
+    $pack = $isSheet ? 'sheet' : 'pack';
 @endphp
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
     <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
             <p class="font-medium text-ink dark:text-white truncate">{{ $m->name }}</p>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Counted in {{ $m->unit }} · Code {{ $m->code ?? '-' }}</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">
+                @if($isSheet)
+                    {{ $m->sheetLabel() }} sheets, {{ $fmt($m->sheetArea()) }} sq ft each · Code {{ $m->code ?? '-' }}
+                @else
+                    Counted in {{ $m->unit }} · Code {{ $m->code ?? '-' }}
+                @endif
+            </p>
         </div>
         <span class="px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 {{ $pillClass }}">{{ $pillText }}</span>
     </div>
@@ -30,11 +41,11 @@
                 {{ $fmt($m->stock_quantity) }} <span class="text-sm font-normal text-slate-500 dark:text-slate-400">{{ $m->unit }}</span>
             </p>
             <p class="text-xs text-slate-500 dark:text-slate-400">
-                {{ $store->count() }} sealed in store{{ $warehouse->count() ? ', ' . $warehouse->count() . ' in warehouse' : '' }}
+                {{ $store->count() }} sealed {{ $isSheet ? ($store->count() === 1 ? 'sheet ' : 'sheets ') : '' }}in store{{ $warehouse->count() ? ', ' . $warehouse->count() . ' in warehouse' : '' }}
             </p>
         </div>
         <div class="rounded-lg bg-slate-50 dark:bg-slate-700/40 p-3 min-w-0">
-            <p class="text-xs text-slate-500 dark:text-slate-400">Active batch</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">{{ $isSheet ? 'Open sheet' : 'Active batch' }}</p>
             @if($active)
                 <p class="text-sm font-medium text-ink dark:text-white truncate" title="{{ $active->batch_number }}">{{ $active->batch_number }}</p>
                 <p class="text-xs text-slate-500 dark:text-slate-400">{{ $fmt($active->remaining_quantity) }} of {{ $fmt($active->opening_quantity) }} {{ $m->unit }} left</p>
@@ -52,7 +63,12 @@
     </div>
 
     <div class="mt-4 flex flex-wrap gap-2">
-        @if($kind === 'continuous')
+        @if($isSheet)
+            <button type="button" @click="show('cut', {{ $m->id }})" class="{{ $btnPrimary }}">
+                <i data-lucide="scissors" class="w-3.5 h-3.5"></i> Cut for a job
+            </button>
+            <button type="button" @click="show('restock', {{ $m->id }})" class="{{ $btnOutline }}">Restock</button>
+        @elseif($kind === 'continuous')
             <button type="button" @click="show('pull', {{ $m->id }})" class="{{ $btnPrimary }}">
                 <i data-lucide="scissors" class="w-3.5 h-3.5"></i> Pull for use
             </button>
@@ -63,15 +79,37 @@
             </button>
         @endif
         @if($store->count())
-            <button type="button" @click="show('open', {{ $m->id }})" class="{{ $btnOutline }}">Open next pack</button>
+            <button type="button" @click="show('open', {{ $m->id }})" class="{{ $btnOutline }}">Open next {{ $pack }}</button>
         @endif
         @if($warehouse->count())
-            <button type="button" @click="show('transfer', {{ $m->id }})" class="{{ $btnOutline }}">Move pack to store</button>
+            <button type="button" @click="show('transfer', {{ $m->id }})" class="{{ $btnOutline }}">Move {{ $pack }} to store</button>
         @endif
         @if($active)
             <button type="button" @click="show('loss', {{ $m->id }})" class="{{ $btnOutline }}">{{ $kind === 'continuous' ? 'Damaged' : 'Damaged pieces' }}</button>
             <button type="button" @click="show('count', {{ $m->id }})" class="{{ $btnOutline }}">Count</button>
         @endif
+        @if($isSheet)
+            {{-- A misprint: record it on the Rejected page, with this material filled in --}}
+            <a href="{{ route('stock.rejected', ['record' => $m->id]) }}" class="{{ $btnOutline }}">
+                <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Mistake
+            </a>
+        @endif
+        {{-- Managing the material itself, kept apart on the right from the everyday stock actions --}}
+        <div class="flex flex-wrap gap-2" style="margin-left:auto;">
+            {{-- A sheet material only makes sense as continuous: it is cut by size --}}
+            @unless($isSheet)
+            <form method="POST" action="{{ route('stock.type', $m) }}">
+                @csrf
+                <input type="hidden" name="inventory_type" value="{{ $otherKind }}">
+                <button type="submit" class="{{ $btnOutline }}">
+                    <i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i> Move to {{ ucfirst($otherKind) }}
+                </button>
+            </form>
+            @endunless
+            <button type="button" @click="show('archive', {{ $m->id }})" class="{{ $btnDanger }}">
+                <i data-lucide="archive" class="w-3.5 h-3.5"></i> Archive
+            </button>
+        </div>
     </div>
 
     @if($card['history']->count())
