@@ -61,8 +61,10 @@ return [
             // The database's clock for created/updated times, e.g. +08:00. Unset, it's the server's:
             // the PC's is Philippine time, a hosted one is usually UTC, and times read 8 hours behind.
             'timezone' => env('DB_TIMEZONE'),
+            // The hosted database's CA certificate, as a path inside the project (database/certs/aiven-ca.pem):
+            // with it the connection is encrypted and the server's certificate is checked. Unset (the PC), no TLS.
             'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA') ? base_path(env('MYSQL_ATTR_SSL_CA')) : null,
             ]) : [],
         ],
 

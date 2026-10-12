@@ -4,6 +4,7 @@
     "installCommand": "echo \"Composer packages are installed by the PHP runtime\"",
     "buildCommand": "echo \"CSS and JS are already built in public/build (npm run build)\"",
     "outputDirectory": "public",
+    "regions": ["bom1"],
     "functions": {
         "api/index.php": {
             "runtime": "vercel-php@0.8.0",
