@@ -80,10 +80,11 @@ class StockController extends Controller
 
         // Product sizes with a recipe, so a rejected run can fill in its materials. A size cut from
         // a board or roll wastes the standard piece it's charged as, like a sale would take.
+        $chooseCut = $this->inventory->cutChooser();
         $recipes = ProductVariant::with(['product:id,name', 'materials:id,inventory_type,sheet_width,sheet_height,sheet_kind'])
             ->whereHas('materials')
             ->get()
-            ->map(function ($v) {
+            ->map(function ($v) use ($chooseCut) {
                 $lines = $v->materials->reject->isSheet()->map(function ($m) {
                     return [
                         'material_id' => $m->id,
@@ -95,7 +96,7 @@ class StockController extends Controller
                 $stocks = $v->materials->filter->isSheet();
                 $size = $v->attributes ?? [];
                 if ($stocks->isNotEmpty() && isset($size['width_in'], $size['height_in'])) {
-                    $cut = $this->inventory->chooseCut($stocks, (float) $size['width_in'], (float) $size['height_in']);
+                    $cut = $chooseCut($stocks, (float) $size['width_in'], (float) $size['height_in']);
                     if ($cut) {
                         $lines->push(['material_id' => $cut['piece']->id, 'per_unit' => (float) $cut['blocks'], 'fixed' => true, 'continuous' => false]);
                     }
