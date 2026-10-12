@@ -742,14 +742,33 @@ class BatchInventoryService
      */
     public function chooseCut(Collection $stocks, float $w, float $h, int $units = 1): ?array
     {
-        $pieces = $this->piecesOf($stocks);
-        $options = SheetYield::options($pieces, $w, $h);
-        $available = [];
-        foreach ($options as $option) {
-            $available[$option['piece']->id] = $this->cutAvailable($option['piece']);
-        }
+        return ($this->cutChooser())($stocks, $w, $h, $units);
+    }
 
-        return SheetYield::best($options, $available, $units);
+    /**
+     * chooseCut for a page that works out many sizes at once, with no stock changing in between:
+     * each board's pieces, and what the store can supply of each piece, are looked up once and
+     * shared by every size. Online each query is a trip to the database, and looking them up per
+     * size (hundreds of queries) took the Rejected stock page close to Vercel's 30 s limit.
+     *
+     * @return \Closure(Collection $stocks, float $w, float $h, int $units = 1): ?array
+     */
+    public function cutChooser(): \Closure
+    {
+        $piecesBySheets = [];
+        $availableByPiece = [];
+
+        return function (Collection $stocks, float $w, float $h, int $units = 1) use (&$piecesBySheets, &$availableByPiece): ?array {
+            $sheets = $stocks->pluck('id')->sort()->implode(',');
+            $options = SheetYield::options($piecesBySheets[$sheets] ??= $this->piecesOf($stocks), $w, $h);
+            $available = [];
+            foreach ($options as $option) {
+                $id = $option['piece']->id;
+                $available[$id] = $availableByPiece[$id] ??= $this->cutAvailable($option['piece']);
+            }
+
+            return SheetYield::best($options, $available, $units);
+        };
     }
 
     // The cut sizes (pieces) of these boards or rolls that are still in use, with their board loaded.
