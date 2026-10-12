@@ -7,7 +7,7 @@
     @vite(['resources/css/app.css'])
 </head>
 {{-- Laravel's "419 Page Expired": a form sent from a page left open after the login ended. --}}
-<body class="bg-gradient-to-br from-ink via-slate-900 to-brand-700 min-h-screen flex items-center justify-center p-4">
+<body class="auth-backdrop min-h-screen flex items-center justify-center p-4">
     <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-8 text-center">
         <img src="{{ asset('images/marcomedia-logo-transparent.png') }}" alt="Marcomedia" class="h-20 w-auto mx-auto mb-5 rounded-xl bg-ink p-2">
         <p class="text-lg font-semibold text-ink">This page was open too long</p>

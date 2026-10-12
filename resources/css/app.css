@@ -143,10 +143,16 @@ main { view-transition-name: page; }
    no script runs. Both pages meet on the same screen, so the switch itself is never seen. The
    background is the login page's own, so arriving there it fades into its own backdrop.
    ===================================================================== */
+/* The brand backdrop: the brand screen's, and the login and 419 pages' own (.auth-backdrop). Plain
+   CSS, not Tailwind's from-/via-/to- classes: those pass their colors through --tw-gradient-*
+   variables, and a browser extension built with Tailwind v4 registers those names (@property) on
+   every page it runs on, which left only the middle color: white, navy, white. */
+.auth-splash, .auth-backdrop {
+    background: linear-gradient(135deg, #1c1c1e 0%, #0f172a 55%, #0f5567 100%);
+}
 .auth-splash {
     position: fixed; inset: 0; z-index: 10000;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem;
-    background: linear-gradient(135deg, #1c1c1e 0%, #0f172a 55%, #0f5567 100%);
     opacity: 0; visibility: hidden; pointer-events: none;
     transition: opacity 280ms ease, visibility 0s linear 280ms;
 }

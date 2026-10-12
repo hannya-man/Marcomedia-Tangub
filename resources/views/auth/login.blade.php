@@ -31,7 +31,7 @@
         });
     </script>
 </head>
-<body class="bg-gradient-to-br from-ink via-slate-900 to-brand-700 min-h-screen flex items-center justify-center p-4">
+<body class="auth-backdrop min-h-screen flex items-center justify-center p-4">
     {{-- First in the page, so it covers it from the very first paint after logging out --}}
     @include('partials.auth-splash', ['arriving' => $authArriving])
 @php
