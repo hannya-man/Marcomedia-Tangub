@@ -58,6 +58,9 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // The database's clock for created/updated times, e.g. +08:00. Unset, it's the server's:
+            // the PC's is Philippine time, a hosted one is usually UTC, and times read 8 hours behind.
+            'timezone' => env('DB_TIMEZONE'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],

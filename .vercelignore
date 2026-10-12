@@ -1,0 +1,25 @@
+# What `vercel deploy` leaves out of the upload.
+
+# Secrets and private notes: never uploaded. Vercel gets its settings from the project's
+# Environment Variables instead.
+/.env
+/.env.*
+/NOTES
+*.sql
+
+# Installed on Vercel (Composer, by the PHP runtime) or not used there.
+/vendor
+/node_modules
+/tests
+/.git
+/.vscode
+/.idea
+
+# Written while the app runs locally. On Vercel these live in /tmp or the database.
+/storage/logs/*
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/bootstrap/cache/*.php
+/public/hot
+/public/storage
