@@ -13,6 +13,7 @@ use App\Models\Supplier;
 use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\InventoryException;
 use App\Services\Inventory\LegacyStockConverter;
+use App\Services\Inventory\SheetYield;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
@@ -43,6 +44,15 @@ class BatchInventoryTest extends TestCase
         if (DB::getDriverName() !== 'mysql') {
             $this->markTestSkipped('These tests need MySQL or MariaDB.');
         }
+
+        // Each test starts with an empty catalog: the data migrations add the shop's own products
+        // and materials (the flyer items, sintra board...), which would take codes these tests
+        // expect, like CB. Pieces before their boards.
+        DB::table('variant_materials')->delete();
+        DB::table('product_variants')->delete();
+        DB::table('products')->delete();
+        DB::table('materials')->whereNotNull('cut_from_id')->delete();
+        DB::table('materials')->delete();
 
         $this->inventory = app(BatchInventoryService::class);
         $this->userId = DB::table('users')->insertGetId([
@@ -82,12 +92,12 @@ class BatchInventoryTest extends TestCase
         $this->inventory->receive($item, 2, 'store', $this->userId);
         $this->assertSame('partial', $po->fresh()->status);
 
-        $this->assertThrows(function () use ($item) {
+        $this->assertRefused(function () use ($item) {
             $this->inventory->receive($item, 4, 'store', $this->userId);
         }, 'only 3 pack(s)');
 
         $this->inventory->cancelPurchaseOrder($po, 'Supplier ran out');
-        $this->assertThrows(function () use ($item) {
+        $this->assertRefused(function () use ($item) {
             $this->inventory->receive($item, 1, 'store', $this->userId);
         }, 'was cancelled');
         $this->assertQty(200, $cb->fresh()->stock_quantity);
@@ -119,7 +129,7 @@ class BatchInventoryTest extends TestCase
         $this->assertSame('open', $b1->fresh()->status);
 
         // 100 sheets can't just disappear.
-        $this->assertThrows(function () use ($b2) {
+        $this->assertRefused(function () use ($b2) {
             $this->inventory->openBatch($b2, $this->userId);
         }, 'still has 100 sheets left');
         $this->assertSame('open', $b1->fresh()->status);
@@ -186,7 +196,7 @@ class BatchInventoryTest extends TestCase
         $this->deliver($tarp, 1, 100, 'warehouse');
 
         $job = $this->job([[$tarp, 1, 'per_length']], 1, 3, 150);
-        $this->assertThrows(function () use ($job) {
+        $this->assertRefused(function () use ($job) {
             $this->inventory->consumeForSaleItem($job, $this->userId);
         }, 'is in the warehouse');
         $this->assertQty(200, $tarp->fresh()->stock_quantity);
@@ -225,7 +235,7 @@ class BatchInventoryTest extends TestCase
         $rows = $this->inventory->consumeForSaleItem($this->job([[$tarp, 1, 'per_length']], 2, 3, 6), $this->userId);
         $this->assertQty(12, $rows->sum('quantity_consumed'));
 
-        $this->assertThrows(function () use ($tarp) {
+        $this->assertRefused(function () use ($tarp) {
             $this->inventory->consumeForSaleItem($this->job([[$tarp, 1, 'per_length']], 1), $this->userId);
         }, 'Enter the length');
     }
@@ -244,7 +254,7 @@ class BatchInventoryTest extends TestCase
         $this->assertNull($row->sale_item_id);
 
         // Not enough blanks: the run is refused and finished stock does not go up.
-        $this->assertThrows(function () use ($variant) {
+        $this->assertRefused(function () use ($variant) {
             $variant->fresh()->adjustStock(500, 'stock_in', 'production', null, null, $this->userId);
         }, 'Not enough Ceramic Mug Blank (11oz)');
         $this->assertSame(20, (int) $variant->fresh()->stock_quantity);
@@ -271,10 +281,10 @@ class BatchInventoryTest extends TestCase
         $this->assertQty(495, $batch->fresh()->remaining_quantity);
         $this->assertQty(495, $mug->fresh()->stock_quantity);
 
-        $this->assertThrows(function () use ($batch) {
+        $this->assertRefused(function () use ($batch) {
             $this->inventory->recordLoss($batch, 'damaged', 2, ' ', $this->userId);
         }, 'Give a reason');
-        $this->assertThrows(function () use ($batch) {
+        $this->assertRefused(function () use ($batch) {
             $this->inventory->recordLoss($batch, 'damaged', 600, 'Dropped', $this->userId);
         }, 'only has 495');
 
@@ -349,7 +359,7 @@ class BatchInventoryTest extends TestCase
         $this->inventory->returnSaleItem($fromOffcut, $this->userId);
         $this->assertSame('available', $offcut->fresh()->status);
         $big = $this->job([[$acrylic, 1.05, 'per_area']], 1, 30, 30);
-        $this->assertThrows(function () use ($big, $offcut) {
+        $this->assertRefused(function () use ($big, $offcut) {
             $this->inventory->consumeForSaleItem($big, $this->userId, [$offcut->id]);
         }, 'too small');
         $this->assertBalanced();
@@ -437,6 +447,167 @@ class BatchInventoryTest extends TestCase
     // Helpers
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // Boards and rolls: fixed yields
+    // ------------------------------------------------------------------
+
+    public function test_yields_come_from_the_real_sizes(): void
+    {
+        // One 4 x 8 ft (48 x 96 in) board, cut in a grid whichever way round fits more.
+        $this->assertSame(35, SheetYield::perSheet(48, 96, 8.5, 13));      // long bond
+        $this->assertSame(44, SheetYield::perSheet(48, 96, 8.5, 11));      // short bond, turned
+        $this->assertSame(192, SheetYield::perSheet(48, 96, 4, 6));
+        $this->assertSame(4, SheetYield::perSheet(48, 96, 24, 36));        // 2 x 3 ft
+        $this->assertSame(0, SheetYield::perSheet(48, 96, 60, 60));        // doesn't fit
+        $this->assertSame(164, SheetYield::perSheet(48, 164 * 12, 48, 12)); // a 164 ft roll, by the foot
+    }
+
+    public function test_cutting_a_board_turns_it_whole_into_pieces(): void
+    {
+        [$board, $long] = $this->board('Test Board', ['Long' => [8.5, 13]]);
+        $this->inventory->restockSheets($board, 2, 'store', $this->userId, 700.0);   // P700 a board
+
+        $made = $this->inventory->cutBoards($long, 1, $this->userId);
+
+        $this->assertSame(1, $made->count());
+        $this->assertQty(35, $made->first()->opening_quantity);
+        $this->assertQty(20, $made->first()->cost_per_unit);                   // P700 / 35: the trim is in the price
+        $this->assertQty(32, $board->fresh()->stock_quantity);                 // one whole board (32 sq ft) left
+        $this->assertQty(35, $long->fresh()->stock_quantity);
+        $this->assertSame(0, MaterialOffcut::count());                         // nothing left over to track
+        $this->assertBalanced();
+
+        $this->assertRefused(fn () => $this->inventory->cutBoards($long, 2, $this->userId), 'Only 1 whole board');
+    }
+
+    public function test_a_boards_sizes_list_smallest_first_and_the_whole_board_last(): void
+    {
+        // Listed by when they were added, "Cut boards" offered the whole board first.
+        [$board] = $this->board('Test Board', ['Whole board' => [48, 96], '12 x 16 in' => [12, 16], '8 x 11 in' => [8, 11]]);
+
+        $this->assertSame(['8 x 11 in', '12 x 16 in', 'Whole board'],
+            $board->cutSizes->map(fn ($piece) => str_replace('Test Board - ', '', $piece->name))->all());
+    }
+
+    public function test_a_sale_cuts_the_next_board_when_its_size_runs_out(): void
+    {
+        [$board, $long] = $this->board('Test Board', ['Long' => [8.5, 13]]);
+        $this->inventory->restockSheets($board, 2, 'store', $this->userId);
+
+        // Three long-bond pieces, none cut yet: one board is cut for them.
+        $item = $this->job([[$board, 1, 'per_area']], 3, 8.5 / 12, 13 / 12);
+        $rows = $this->inventory->consumeForSaleItem($item, $this->userId);
+
+        $this->assertQty(3, $rows->sum('quantity_consumed'));
+        $this->assertQty(32, $board->fresh()->stock_quantity);
+        $this->assertQty(32, $long->fresh()->stock_quantity);
+        $this->assertSame([$long->id, 1], [(int) $item->fresh()->cut_material_id, (int) $item->fresh()->cut_blocks]);
+        $this->assertBalanced();
+    }
+
+    public function test_a_custom_size_is_charged_as_the_nearest_piece_up(): void
+    {
+        [$board, $long, $a3, $small] = $this->board('Test Board', ['Long' => [8.5, 13], 'A3' => [11.69, 16.54], 'Small' => [4, 6]]);
+        $this->inventory->restockSheets($board, 1, 'store', $this->userId);
+        $cut = fn ($w, $h) => $this->inventory->chooseCut(collect([$board]), $w, $h);
+
+        $this->assertSame($small->id, $cut(4, 5)['piece']->id);
+        $this->assertSame($long->id, $cut(8, 12)['piece']->id);     // too big for small
+        $this->assertSame($a3->id, $cut(10, 12)['piece']->id);      // too wide for long
+        $this->assertSame($a3->id, $cut(12, 10)['piece']->id);      // either way round
+        $this->assertNull($cut(50, 100));                            // bigger than the board
+
+        // Sold, a 10 x 12 in job takes one A3 piece: the board is cut into A3 for it.
+        $this->inventory->consumeForSaleItem($this->job([[$board, 1, 'per_area']], 1, 10 / 12, 1), $this->userId);
+        $this->assertQty(19, $a3->fresh()->stock_quantity);
+        $this->assertBalanced();
+    }
+
+    public function test_a_roll_job_takes_whole_feet_of_the_roll_it_fits_best(): void
+    {
+        [$roll3, $ft3] = $this->board('Tarp 3ft', ['per foot' => [36, 12]], 3, 164, true);
+        [$roll4, $ft4] = $this->board('Tarp 4ft', ['per foot' => [48, 12]], 4, 164, true);
+        $this->inventory->restockSheets($roll3, 1, 'store', $this->userId);
+        $this->inventory->restockSheets($roll4, 1, 'store', $this->userId);
+        $rolls = collect([$roll3, $roll4]);
+        $cut = fn ($w, $h) => array_values(array_intersect_key($this->inventory->chooseCut($rolls, $w, $h), ['piece' => 0, 'blocks' => 0]));
+
+        // 2 x 3 ft: 3 ft across the 3 ft roll, 2 ft of it (6 sq ft, not 8 on the 4 ft roll).
+        [$piece, $feet] = $cut(24, 36);
+        $this->assertSame([$ft3->id, 2], [$piece->id, $feet]);
+        // 4 x 6 ft only fits across the 4 ft roll: 6 ft of it.
+        [$piece, $feet] = $cut(48, 72);
+        $this->assertSame([$ft4->id, 6], [$piece->id, $feet]);
+        // 3 x 4.5 ft takes whole feet: 5 ft of the 3 ft roll.
+        [$piece, $feet] = $cut(36, 54);
+        $this->assertSame([$ft3->id, 5], [$piece->id, $feet]);
+
+        // Two 2 x 3 ft tarps: the 3 ft roll is measured into 164 ft, and 4 ft of it are used.
+        $this->inventory->consumeForSaleItem($this->job([[$roll3, 1, 'per_area'], [$roll4, 1, 'per_area']], 2, 2, 3), $this->userId);
+        $this->assertQty(160, $ft3->fresh()->stock_quantity);
+        $this->assertQty(0, $roll3->fresh()->stock_quantity);
+        $this->assertBalanced();
+    }
+
+    public function test_no_whole_board_in_the_store_refuses_the_job_and_changes_nothing(): void
+    {
+        [$board, $long] = $this->board('Test Board', ['Long' => [8.5, 13]]);
+        $this->inventory->restockSheets($board, 1, 'warehouse', $this->userId);
+
+        $this->assertRefused(function () use ($board) {
+            $this->inventory->consumeForSaleItem($this->job([[$board, 1, 'per_area']], 1, 8.5 / 12, 13 / 12), $this->userId);
+        }, 'move some from the warehouse');
+        $this->assertQty(0, $long->fresh()->stock_quantity);
+        $this->assertQty(32, $board->fresh()->stock_quantity);
+        $this->assertBalanced();
+    }
+
+    public function test_void_puts_the_pieces_back_and_the_board_stays_cut(): void
+    {
+        [$board, $long] = $this->board('Test Board', ['Long' => [8.5, 13]]);
+        $this->inventory->restockSheets($board, 1, 'store', $this->userId);
+        $item = $this->job([[$board, 1, 'per_area']], 2, 8.5 / 12, 13 / 12);
+        $this->inventory->consumeForSaleItem($item, $this->userId);
+
+        $this->inventory->returnSaleItem($item->fresh(), $this->userId, 'Customer cancelled');
+
+        $this->assertQty(35, $long->fresh()->stock_quantity);
+        $this->assertQty(0, $board->fresh()->stock_quantity);
+        $this->assertBalanced();
+    }
+
+    public function test_a_board_cut_into_pieces_is_low_not_out_and_pieces_never_alert(): void
+    {
+        [$board, $long] = $this->board('Test Board', ['Long' => [8.5, 13]]);
+        $board->update(['low_stock_threshold' => 32]);   // reorder at one board
+        $this->inventory->restockSheets($board, 1, 'store', $this->userId);
+        $this->inventory->cutBoards($long, 1, $this->userId);
+
+        // No whole board left, but its 35 pieces are one board's worth: low, not out.
+        $this->assertSame(['low_stock'], StockAlert::active()->where('material_id', $board->id)->pluck('type')->all());
+        $this->assertSame(0, StockAlert::where('material_id', $long->id)->count());
+    }
+
+    // A board (or a roll: $roll, $height ft long) and its cut sizes, w x h in inches:
+    // [board, piece, piece...]
+    private function board(string $name, array $sizes, float $width = 4, float $height = 8, bool $roll = false): array
+    {
+        $board = $this->material($name, 'sq ft', 0, [
+            'inventory_type' => $roll ? 'continuous' : 'discrete', 'sheet_kind' => $roll ? 'roll' : 'board',
+            'sheet_width' => $width, 'sheet_height' => $height, 'pack_size' => $width * $height, 'cost_per_unit' => null,
+        ]);
+        $pieces = [];
+        foreach ($sizes as $label => [$w, $h]) {
+            $pieces[] = Material::create([
+                'name' => "{$name} - {$label}", 'unit' => $roll ? 'ft' : 'pcs', 'inventory_type' => 'discrete',
+                'stock_quantity' => 0, 'low_stock_threshold' => 0, 'cut_from_id' => $board->id,
+                'cut_width_in' => $w, 'cut_height_in' => $h, 'cut_yield' => SheetYield::perSheet($width * 12, $height * 12, $w, $h),
+            ]);
+        }
+
+        return array_merge([$board], $pieces);
+    }
+
     private function material(string $name, string $unit, float $reorderPoint = 0, array $extra = []): Material
     {
         return Material::create($extra + [
@@ -522,7 +693,7 @@ class BatchInventoryTest extends TestCase
         return false;
     }
 
-    private function assertThrows(callable $action, string $messageContains): void
+    private function assertRefused(callable $action, string $messageContains): void
     {
         try {
             $action();

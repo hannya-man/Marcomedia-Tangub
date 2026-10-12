@@ -19,6 +19,16 @@ class Product extends Model
     public function category() { return $this->belongsTo(Category::class); }
     public function variants() { return $this->hasMany(ProductVariant::class); }
 
+    // The shop's order: by category, then by place within it (the flyer's). Products added later
+    // have no place, so they follow in their category, by name; uncategorized ones come last.
+    public function scopeInShopOrder($query)
+    {
+        return $query
+            ->orderByRaw('COALESCE((SELECT sort_order FROM categories WHERE categories.id = products.category_id), 65535)')
+            ->orderByRaw('COALESCE(products.sort_order, 65535)')
+            ->orderBy('products.name');
+    }
+
     // Total SELLABLE stock across all variants — damaged units are
     // excluded, so this always matches what a customer can actually buy.
     public function getTotalStockAttribute(): int

@@ -26,7 +26,12 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
     // Profile — every logged-in role can manage their own account.
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    // No "delete my account": staff accounts are the owner's to manage (User Management). Deleting
+    // one with sales failed halfway, and the last owner account could delete itself.
+
+    // Keeps the login alive while a page sits open (Billing/POS stays open on the counter all day):
+    // a sale rung up after two quiet hours otherwise failed with "Page Expired" and lost its cart.
+    Route::get('/keep-alive', fn () => response()->noContent())->name('keep-alive');
 
     // Staff chat — one shared channel, every logged-in role (admin, cashier,
     // cashier) can see and post to it.
@@ -46,6 +51,21 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         // reachable by a cashier, so these stay out of the shared group below.
         Route::post('/returns', [\App\Http\Controllers\SaleReturnController::class, 'store'])->name('returns.store');
         Route::post('/physical-counts', [\App\Http\Controllers\PhysicalCountController::class, 'store'])->name('physical-counts.store');
+
+        // Editing a product (its details, sizes, prices and what each size is made of): owner only,
+        // so the price list is the owner's to set.
+        Route::get('/inventory/{product}/edit', [InventoryController::class, 'edit'])->name('inventory.edit');
+        Route::put('/inventory/{product}', [InventoryController::class, 'update'])->name('inventory.update');
+
+        // Sales archive: owner only. An archived sale leaves the sales totals, so a cashier could
+        // otherwise make a paid sale disappear from the day's takings.
+        Route::get('/sales-orders/archive', [POSController::class, 'archive'])->name('sales.archive');
+        Route::post('/sales/{sale}/archive', [POSController::class, 'archiveOne'])->name('sales.archiveOne');
+        Route::post('/sales/{sale}/restore', [POSController::class, 'restoreSale'])->name('sales.restore');
+        // Orders as a standalone concept is retired (see POSController::transactions
+        // for why) — only restore stays, so any pre-existing archived Order can
+        // still be brought back from the Archive page.
+        Route::post('/orders/{order}/restore', [POSController::class, 'restoreOrder'])->name('orders.restore');
     });
 
     // Billing/POS + Stock — admin and cashier.
@@ -82,9 +102,13 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::post('/stock/materials', [\App\Http\Controllers\StockController::class, 'store'])->name('stock.store');
         Route::post('/stock/materials/{material}/type', [\App\Http\Controllers\StockController::class, 'setType'])->name('stock.type');
         Route::post('/stock/materials/{material}/pull', [\App\Http\Controllers\StockController::class, 'pull'])->name('stock.pull');
-        // Sheet materials (sintra board): cut a size or take a whole sheet; restock by the sheet.
-        Route::post('/stock/materials/{material}/cut', [\App\Http\Controllers\StockController::class, 'cut'])->name('stock.cut');
+        // Boards and rolls (sintra board, tarpaulin), with fixed yields: restock whole ones, cut whole
+        // ones into a standard size, write off a damaged one, and add or remove a board's sizes.
         Route::post('/stock/materials/{material}/restock-sheets', [\App\Http\Controllers\StockController::class, 'restockSheets'])->name('stock.restock-sheets');
+        Route::post('/stock/materials/{material}/write-off', [\App\Http\Controllers\StockController::class, 'writeOffBoard'])->name('stock.write-off-board');
+        Route::post('/stock/materials/{material}/cut-sizes', [\App\Http\Controllers\StockController::class, 'addCutSize'])->name('stock.cut-sizes.store');
+        Route::post('/stock/pieces/{material}/cut', [\App\Http\Controllers\StockController::class, 'cutBoards'])->name('stock.cut-boards');
+        Route::delete('/stock/pieces/{material}', [\App\Http\Controllers\StockController::class, 'removeCutSize'])->name('stock.cut-sizes.destroy');
         Route::post('/stock/materials/{material}/open-next', [\App\Http\Controllers\StockController::class, 'openNext'])->name('stock.open-next');
         Route::post('/stock/materials/{material}/transfer', [\App\Http\Controllers\StockController::class, 'transfer'])->name('stock.transfer');
         Route::post('/stock/materials/{material}/loss', [\App\Http\Controllers\StockController::class, 'loss'])->name('stock.loss');
@@ -104,14 +128,9 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::get('/sales', [POSController::class, 'transactions'])->name('sales.index');
         Route::post('/sales/{sale}/void', [POSController::class, 'void'])->name('sales.void');
         Route::post('/sales/{sale}/complete', [POSController::class, 'complete'])->name('sales.complete');
+        // Items sold while out of stock (on order) take their stock. Restocks do it by themselves.
+        Route::post('/sales/{sale}/take-stock', [POSController::class, 'takeStock'])->name('sales.take-stock');
         Route::patch('/sales/{sale}', [POSController::class, 'update'])->name('sales.update');
-        Route::get('/sales-orders/archive', [POSController::class, 'archive'])->name('sales.archive');
-        Route::post('/sales/{sale}/archive', [POSController::class, 'archiveOne'])->name('sales.archiveOne');
-        Route::post('/sales/{sale}/restore', [POSController::class, 'restoreSale'])->name('sales.restore');
-        // Orders as a standalone concept is retired (see POSController::transactions
-        // for why) — only restore stays, so any pre-existing archived Order can
-        // still be brought back from the Archive page.
-        Route::post('/orders/{order}/restore', [POSController::class, 'restoreOrder'])->name('orders.restore');
 
         // Shift open/close — every cashier and admin runs their own shift.
         // Close is blocked inside the controller unless counted cash

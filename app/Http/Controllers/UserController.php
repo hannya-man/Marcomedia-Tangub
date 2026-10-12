@@ -51,6 +51,12 @@ class UserController extends Controller
             'password' => 'nullable|string|min:6',
         ]);
 
+        // The last owner can't become a cashier: no one could reach the dashboard or User
+        // Management again to undo it.
+        if ($user->role === 'admin' && $validated['role'] !== 'admin' && User::where('role', 'admin')->count() <= 1) {
+            return back()->withInput()->with('error', "{$user->name} is the only owner account. Make someone else an owner first.");
+        }
+
         $user->name = $validated['name'];
         $user->email = $validated['email'];
         $user->role = $validated['role'];

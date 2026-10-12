@@ -37,7 +37,8 @@ class StockAlertService
     public function evaluate(Material $material): void
     {
         $s = $this->summary($material);
-        $live = $material->archived_at === null;
+        // Cut pieces of a board never alert: when they run out, the next board is cut. Its board does.
+        $live = $material->archived_at === null && $material->cut_from_id === null;
 
         $checks = [
             'out_of_stock' => $s['total'] <= self::EPSILON,
@@ -74,8 +75,18 @@ class StockAlertService
 
         $offcuts = MaterialOffcut::where('material_id', $material->id)->where('status', 'available')->get();
 
+        // A board's or roll's cut pieces are still its stock, counted back in board terms
+        // (pieces / yield x one board's area): the last board cut into pieces isn't "out" yet.
+        $cut = 0.0;
+        if ($material->isSheet()) {
+            foreach ($material->cutSizes()->whereNull('archived_at')->get() as $piece) {
+                $left = (float) InventoryBatch::where('material_id', $piece->id)->whereIn('status', ['unopened', 'open'])->sum('remaining_quantity');
+                $cut += $piece->cut_yield > 0 ? $left / $piece->cut_yield * $material->sheetArea() : 0;
+            }
+        }
+
         return [
-            'total' => round((float) $batches->sum('remaining_quantity'), 3),
+            'total' => round((float) $batches->sum('remaining_quantity') + $cut, 3),
             'reorder_point' => round((float) $material->low_stock_threshold, 3),
             'active_batch' => $open ? $open->batch_number : null,
             'active_remaining' => $open ? round((float) $open->remaining_quantity, 3) : 0.0,
@@ -214,9 +225,17 @@ class StockAlertService
             return "{$where} {$s['sealed_warehouse_packs']} sealed pack(s) in the warehouse. Move one to the store.";
         }
 
+        // Boards and rolls are counted whole: "0.89 rolls left", not sq ft.
+        $amount = function ($qty) use ($m, $unit) {
+            if (!$m->isSheet() || $m->sheetArea() <= 0) {
+                return self::formatQty($qty) . " {$unit}";
+            }
+            $n = round($qty / $m->sheetArea(), 2);
+            return self::formatQty($n) . ' ' . $m->sheetNoun() . ($n == 1 ? '' : 's');
+        };
         $text = $type === 'out_of_stock'
-            ? "{$m->name} is out of stock. Jobs that use it can't be sold."
-            : "{$m->name}: " . self::formatQty($s['total']) . " {$unit} left, reorder point is " . self::formatQty($s['reorder_point']) . '.';
+            ? "{$m->name} is out of stock. Jobs that use it are sold on order, and take it when it comes in."
+            : "{$m->name}: " . $amount($s['total']) . ' left, reorder point is ' . $amount($s['reorder_point']) . '.';
 
         if ($s['pending_po_packs'] > 0) {
             $text .= " {$s['pending_po_packs']} pack(s) already on order (" . implode(', ', $s['pending_po_numbers']) . '). Follow up before ordering more.';

@@ -11,6 +11,10 @@
     Usage:
         <x-select-menu name="category_id" :options="['' => 'All categories', 1 => 'Apparel']"
             :selected="request('category_id')" placeholder="All categories" onchange="$el.closest('form').submit()" />
+
+    `onchange` runs only when the pick is a different value. The pick is written
+    into the hidden input first, by hand: x-model only catches up on Alpine's next
+    update, so a form submit from `onchange` would otherwise send the old value.
 --}}
 @props([
     'name',
@@ -43,10 +47,10 @@
      @click.outside="open = false"
      class="relative inline-block w-full">
 
-    <input type="hidden" name="{{ $name }}" x-model="value">
+    <input type="hidden" name="{{ $name }}" x-model="value" x-ref="input">
 
     <button type="button" @click="open = !open"
-        class="w-full flex items-center justify-between gap-2 text-sm rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-3 py-2 shadow-sm hover:border-brand-400 dark:hover:border-brand-400 transition-colors">
+        class="w-full flex items-center justify-between gap-2 text-sm rounded-md border border-slate-300 bg-white px-3 py-2 shadow-sm hover:border-brand-400 transition-colors">
         <span x-text="label()" class="truncate"></span>
         <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 flex-shrink-0 transition-transform duration-150" :class="open ? 'rotate-180' : ''"></i>
     </button>
@@ -59,13 +63,15 @@
          x-transition:leave-start="opacity-100 scale-100"
          x-transition:leave-end="opacity-0 scale-95"
          style="display:none;"
-         class="absolute z-50 mt-1.5 w-full min-w-[10rem] overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-md">
+         class="absolute z-50 mt-1.5 w-full min-w-[10rem] overflow-hidden rounded-md border border-slate-200 bg-white p-1 shadow-md">
         <template x-for="opt in options" :key="opt.value">
             <button type="button"
-                @click="value = opt.value; open = false; {!! $onchange !!}"
-                class="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                :class="value === opt.value ? 'bg-slate-50 dark:bg-slate-700/60 font-medium' : ''">
-                <i data-lucide="check" class="w-3.5 h-3.5 text-brand-600 flex-shrink-0" :class="value === opt.value ? 'opacity-100' : 'opacity-0'"></i>
+                @click="open = false; if (value !== opt.value) { value = $refs.input.value = opt.value; {!! $onchange !!} }"
+                class="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left text-slate-700 hover:bg-slate-100 transition-colors"
+                :class="value === opt.value ? 'bg-slate-50 font-medium' : ''">
+                {{-- Drawn inline: the icon script never sees what Alpine adds later, so this was blank --}}
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                     class="w-3.5 h-3.5 text-brand-600 flex-shrink-0" :class="value === opt.value ? 'opacity-100' : 'opacity-0'"><path d="M20 6 9 17l-5-5"/></svg>
                 <span x-text="opt.label"></span>
             </button>
         </template>

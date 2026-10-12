@@ -12,7 +12,7 @@
 @endphp
 @if($bannerAlerts->isNotEmpty() && ! request()->routeIs('stock.continuous', 'stock.discrete'))
     <a href="{{ $bannerUrl }}"
-       class="mx-8 mt-4 flex items-center gap-3 rounded-lg bg-amber-100 dark:bg-amber-900/30 border border-amber-400 text-amber-700 dark:text-amber-400 px-4 py-3 text-sm">
+       class="mx-8 mt-4 flex items-center gap-3 rounded-lg bg-amber-100 border border-amber-400 text-amber-700 px-4 py-3 text-sm">
         <i data-lucide="alert-triangle" class="w-4 h-4 flex-shrink-0"></i>
         <span class="flex-1 min-w-0 truncate">
             <strong class="font-semibold">{{ $bannerAlerts->count() }} stock {{ $bannerAlerts->count() === 1 ? 'alert' : 'alerts' }}.</strong>

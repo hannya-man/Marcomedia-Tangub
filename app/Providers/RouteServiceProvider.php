@@ -13,11 +13,14 @@ class RouteServiceProvider extends ServiceProvider
     /**
      * The path to the "home" route for your application.
      *
-     * Typically, users are redirected here after authentication.
+     * Typically, users are redirected here after authentication. "/" sends each role to its own
+     * start page (routes/web.php): the owner to the dashboard, a cashier to Billing/POS. The
+     * dashboard is owner-only, so sending a cashier there just bounced them with
+     * "You don't have access to that page."
      *
      * @var string
      */
-    public const HOME = '/dashboard';
+    public const HOME = '/';
 
     /**
      * Define your route model bindings, pattern filters, and other route configuration.

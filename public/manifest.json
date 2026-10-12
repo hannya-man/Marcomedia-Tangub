@@ -2,7 +2,7 @@
   "name": "Marcomedia POS",
   "short_name": "Marcomedia",
   "description": "Point of sale, inventory, and appointments for Marcomedia Printing & Photography",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",

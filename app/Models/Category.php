@@ -11,4 +11,10 @@ class Category extends Model
     ];
 
     public function products() { return $this->hasMany(Product::class); }
+
+    // The shop's order (the flyer's sections). Categories added later have no place, so they follow, by name.
+    public function scopeInShopOrder($query)
+    {
+        return $query->orderByRaw('COALESCE(sort_order, 65535)')->orderBy('name');
+    }
 }

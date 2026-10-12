@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 use App\Models\InventoryBatch;
 use App\Models\Material;
 use App\Models\MaterialOffcut;
+use App\Services\Inventory\BackorderService;
 use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\InventoryException;
 use Illuminate\Http\Request;
@@ -13,7 +14,8 @@ use Illuminate\Validation\Rule;
 class InventoryBatchController extends Controller
 {
     // Opening stock at go-live only (admin). Deliveries after go-live use Receive on a PO.
-    public function store(Request $request, BatchInventoryService $inventory)
+    // Items sold while the material was out (on order) take theirs from it.
+    public function store(Request $request, BatchInventoryService $inventory, BackorderService $backorders)
     {
         $data = $request->validate([
             'material_id' => ['required', Rule::exists('materials', 'id')->whereNull('archived_at')],
@@ -23,12 +25,12 @@ class InventoryBatchController extends Controller
             'received_at' => 'nullable|date|before_or_equal:today',
         ]);
 
-        return $this->attempt(function () use ($inventory, $data) {
+        return $this->attempt(function () use ($inventory, $backorders, $data) {
             $batch = $inventory->recordOpeningStock(
                 Material::findOrFail($data['material_id']), (float) $data['quantity'], $data['location'],
                 Auth::id(), isset($data['cost_per_unit']) ? (float) $data['cost_per_unit'] : null, $data['received_at'] ?? null
             );
-            return "Opening stock saved as {$batch->batch_number} ({$data['location']}).";
+            return "Opening stock saved as {$batch->batch_number} ({$data['location']})." . $backorders->fillAfterRestock(Auth::id());
         });
     }
 
@@ -53,11 +55,11 @@ class InventoryBatchController extends Controller
         });
     }
 
-    public function transfer(InventoryBatch $batch, BatchInventoryService $inventory)
+    public function transfer(InventoryBatch $batch, BatchInventoryService $inventory, BackorderService $backorders)
     {
-        return $this->attempt(function () use ($inventory, $batch) {
+        return $this->attempt(function () use ($inventory, $backorders, $batch) {
             $inventory->transferToStore($batch);
-            return "{$batch->batch_number} moved to the store.";
+            return "{$batch->batch_number} moved to the store." . $backorders->fillAfterRestock(Auth::id());
         });
     }
 

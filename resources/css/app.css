@@ -25,75 +25,29 @@
     --ring: 191 67% 34%;
     --radius: 0.625rem;
 }
-.dark {
-    --background: 222 25% 8%;
-    --foreground: 210 20% 96%;
-    --card: 222 22% 12%;
-    --card-foreground: 210 20% 96%;
-    --muted: 222 18% 18%;
-    --muted-foreground: 215 15% 65%;
-    --border: 222 15% 24%;
-    --input: 222 15% 24%;
-    --primary: 191 60% 45%;
-    --primary-foreground: 0 0% 100%;
-    --ring: 191 60% 45%;
-}
 
 body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-
-/* ===== Smooth dark mode transition =====
-   Toggling .dark used to snap every color instantly. This fades all
-   color-related properties across the whole page at once, so switching
-   themes feels like a cross-fade instead of a flash. Deliberately scoped
-   to color/background/border/shadow only (not transform/layout props),
-   so it never fights with the more specific button/select/card animations
-   declared further down — those still fully control their own transforms. */
-*, *::before, *::after {
-    transition-property: background-color, border-color, color, box-shadow, fill, stroke;
-    transition-timing-function: ease;
-    transition-duration: 300ms;
-}
-
-/* Global dark-mode fix for form fields — applies everywhere regardless
-   of whether a given input has its own dark: classes, so text boxes
-   are never invisible/unreadable in dark mode. */
-.dark input:not([type=checkbox]):not([type=radio]),
-.dark select,
-.dark textarea {
-    background-color: #1e293b;
-    border-color: #475569;
-    color: #f1f5f9;
-}
-.dark input::placeholder,
-.dark textarea::placeholder {
-    color: #94a3b8;
-}
-.dark select option {
-    background-color: #1e293b;
-    color: #f1f5f9;
-}
-
-/* Same idea for brand-teal text (links like "View all" and "Restore", role
-   labels, icons): teal-600 is too dark to read on dark cards, so it lightens
-   to brand-300 in dark mode. */
-.dark .text-brand-600 {
-    color: #6fb9c8;
-}
 
 /* ===== Flat 2.0 (Semi-Flat) interaction polish ===== */
 a, button {
     transition: background-color 150ms ease, border-color 150ms ease,
                 box-shadow 150ms ease, transform 100ms ease, color 150ms ease, opacity 150ms ease;
 }
-a:active:not(:disabled), button:active:not(:disabled) {
+/* Buttons shrink a little when pressed. Links don't: a wide link (a full-width row like "Back to
+   Inventory", whose text sits at its left end) shrank toward its centre, slid out from under the
+   pointer, and the click was lost. */
+button:active:not(:disabled) {
     transform: scale(0.97);
 }
+a:active { opacity: 0.75; }
 button:disabled, a[disabled] { transform: none; }
 
-/* shadcn-style focus ring: a thin, offset ring instead of a heavy glow */
-a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+/* shadcn-style focus ring: a thin, offset ring instead of a heavy glow. A field with its own
+   focus ring (focus:ring-*) keeps just that one, not a second outline around it. */
+a:focus-visible, button:focus-visible,
+input:focus-visible:not([class*="focus:ring"]), select:focus-visible:not([class*="focus:ring"]), textarea:focus-visible:not([class*="focus:ring"]) {
     outline: 2px solid hsl(var(--ring) / 0.5);
     outline-offset: 2px;
 }
@@ -126,27 +80,13 @@ select:active {
     border-radius: 0.875rem !important;
 }
 
-/* Soft elevation lift on cards, shadcn-style subtle shadow instead of a
-   heavy default — and now transitions background-color too, so cards
-   fade smoothly on dark mode toggle instead of snapping. */
+/* Soft elevation lift on cards, shadcn-style subtle shadow instead of a heavy default. */
 .rounded-xl.border {
     border-radius: var(--radius);
-    transition: box-shadow 200ms ease, transform 200ms ease, border-color 150ms ease, background-color 300ms ease;
+    transition: box-shadow 200ms ease, transform 200ms ease, border-color 150ms ease;
 }
 .rounded-xl.border:hover {
     box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
-}
-.dark .rounded-xl.border:hover {
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-}
-
-/* Page content fades/slides in on load */
-main {
-    animation: fadeInUp 300ms ease;
-}
-@keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
 }
 
 /* Modal pop */
@@ -168,17 +108,72 @@ main {
 
 /* =====================================================================
    SMOOTH PAGE-TO-PAGE TRANSITIONS
-   This app is traditional server-rendered Laravel (full page loads on
-   every navigation, no SPA router) — the View Transitions API is the
-   correct native tool for a real cross-fade between two separate page
-   loads. Supported in Chrome/Edge; browsers without support just do a
-   normal navigation with no error, so this is a safe, free enhancement.
+   Every page is a full page load, so the View Transitions API joins them: the sidebar and the
+   header stay put (root: no animation) and only the page itself (main) fades across. Browsers
+   without it fade the page in instead. A page or list that changes in place (data-smooth-list)
+   fades its own way, below.
    ===================================================================== */
 @view-transition {
     navigation: auto;
 }
+main { view-transition-name: page; }
 ::view-transition-old(root),
 ::view-transition-new(root) {
-    animation-duration: 220ms;
-    animation-timing-function: ease;
+    animation: none;
+}
+::view-transition-old(page) { animation: 120ms ease-out both pageOut; }
+::view-transition-new(page) { animation: 240ms cubic-bezier(.2, .8, .2, 1) both pageIn; }
+@keyframes pageOut { to { opacity: 0; } }
+@keyframes pageIn { from { opacity: 0; transform: translateY(6px); } }
+
+@supports not (view-transition-name: none) {
+    main { animation: pageIn 300ms ease; }
+}
+
+/* A list that pages and filters in place (data-smooth-list): it dims while the next page loads,
+   then the new one fades up into its place. */
+[data-smooth-list] { transition: opacity 180ms ease, transform 220ms cubic-bezier(.2, .8, .2, 1); }
+[data-smooth-list].is-loading { opacity: .55; }
+[data-smooth-list].is-entering { opacity: 0; transform: translateY(6px); transition: none; }
+
+/* =====================================================================
+   LOG IN / LOG OUT: one brand screen between the login page and the app
+   The page being left fades it in (.is-on, by a script, before its form is sent); the page
+   arrived at starts with it fully shown (.is-arriving) and fades it away by CSS alone, even if
+   no script runs. Both pages meet on the same screen, so the switch itself is never seen. The
+   background is the login page's own, so arriving there it fades into its own backdrop.
+   ===================================================================== */
+.auth-splash {
+    position: fixed; inset: 0; z-index: 10000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem;
+    background: linear-gradient(135deg, #1c1c1e 0%, #0f172a 55%, #0f5567 100%);
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity 280ms ease, visibility 0s linear 280ms;
+}
+.auth-splash.is-on {
+    opacity: 1; visibility: visible; pointer-events: auto;
+    transition: opacity 280ms ease;
+}
+.auth-splash.is-arriving {
+    opacity: 1; visibility: visible;
+    animation: authSplashOut 450ms ease 150ms forwards;
+}
+@keyframes authSplashOut { to { opacity: 0; visibility: hidden; } }
+.auth-splash-logo { height: 7rem; width: auto; animation: authSplashBreathe 1.8s ease-in-out infinite; }
+@keyframes authSplashBreathe { 50% { transform: scale(1.035); } }
+.auth-splash-status { display: flex; align-items: center; gap: .6rem; min-height: 1.25rem; color: #cbd5e1; font-size: .875rem; }
+.auth-splash.is-arriving .auth-splash-status { visibility: hidden; }
+.auth-splash-spinner {
+    width: 1rem; height: 1rem; border-radius: 9999px;
+    border: 2px solid rgb(255 255 255 / .25); border-top-color: #fff;
+    animation: authSplashSpin .8s linear infinite;
+}
+@keyframes authSplashSpin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(page), ::view-transition-new(page) { animation: none; }
+    [data-smooth-list], [data-smooth-list].is-entering { transition: none; transform: none; }
+    .auth-splash, .auth-splash.is-on { transition: none; }
+    .auth-splash.is-arriving { animation-duration: 1ms; animation-delay: 0s; }
+    .auth-splash-logo { animation: none; }
 }

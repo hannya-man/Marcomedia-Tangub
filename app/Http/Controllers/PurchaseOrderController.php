@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Supplier;
+use App\Services\Inventory\BackorderService;
 use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\InventoryException;
 use Illuminate\Http\Request;
@@ -39,7 +40,8 @@ class PurchaseOrderController extends Controller
     }
 
     // Delivery arrives: each pack becomes a sealed batch in the store or warehouse.
-    public function receive(Request $request, PurchaseOrderItem $item, BatchInventoryService $inventory)
+    // Items sold while the material was out (on order) take theirs from the delivery.
+    public function receive(Request $request, PurchaseOrderItem $item, BatchInventoryService $inventory, BackorderService $backorders)
     {
         $data = $request->validate([
             'packs' => 'required|integer|min:1',
@@ -56,9 +58,9 @@ class PurchaseOrderController extends Controller
         $first = $batches->first()->batch_number;
         $last = $batches->last()->batch_number;
 
-        return back()->with('success', $batches->count() === 1
+        return back()->with('success', ($batches->count() === 1
             ? "Received as {$first}."
-            : "Received {$batches->count()} packs: {$first} to {$last}.");
+            : "Received {$batches->count()} packs: {$first} to {$last}.") . $backorders->fillAfterRestock(Auth::id()));
     }
 
     public function cancel(Request $request, PurchaseOrder $purchaseOrder, BatchInventoryService $inventory)

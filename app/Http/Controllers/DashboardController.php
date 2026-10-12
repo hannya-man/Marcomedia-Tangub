@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Models\Material;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\ProductVariant;
@@ -34,11 +35,17 @@ class DashboardController extends Controller
             ->limit(10)
             ->get();
 
-        $outOfStockCount = ProductVariant::whereRaw('(stock_quantity - damaged_quantity) <= 0')->count();
-        $lowStockCount = ProductVariant::whereRaw('(stock_quantity - damaged_quantity) <= low_stock_threshold')
-            ->whereRaw('(stock_quantity - damaged_quantity) > 0')
-            ->count();
-        $totalStockItems = ProductVariant::count();
+        // What's low or out: the materials (what made-to-order jobs are made from) and the items that
+        // keep a stock count. A made-to-order size has no count of its own, so it is never "out"
+        // (counting them showed most of the catalog as out of stock).
+        $stockStates = Material::whereNull('archived_at')->whereNull('cut_from_id')->with('cutSizes')->get()
+            ->map(fn ($m) => $m->stock_status)
+            ->concat(ProductVariant::where('status', 'active')
+                ->whereHas('product', fn ($q) => $q->where('status', 'active')->where('track_inventory', true))
+                ->get()->map(fn ($v) => $v->stock_status));
+        $outOfStockCount = $stockStates->filter(fn ($s) => $s === 'out_of_stock')->count();
+        $lowStockCount = $stockStates->filter(fn ($s) => $s === 'low_stock')->count();
+        $totalStockItems = $stockStates->count();
 
         // Sales trend, last 7 days
         $salesTrend = Sale::selectRaw('DATE(created_at) as date, SUM(total_amount) as total')

@@ -69,7 +69,9 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    // The shop's own time (Philippines, UTC+8). On UTC every time was saved 8 hours behind, and "today"
+    // (Today's Sales, the date in invoice numbers) turned over at 8 in the morning.
+    'timezone' => env('APP_TIMEZONE', 'Asia/Manila'),
 
     /*
     |--------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Material;
+use App\Services\Inventory\BackorderService;
 use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\InventoryException;
 use Illuminate\Http\Request;
@@ -28,7 +29,8 @@ class MaterialController extends Controller
 
     // Restock without a purchase order. The new stock still becomes its own sealed batch
     // with a batch number (e.g. OCT-2026-LF-3), so nothing is typed straight into stock.
-    public function adjustStock(Request $request, Material $material, BatchInventoryService $inventory)
+    // Items sold while it was out (on order) take theirs from it.
+    public function adjustStock(Request $request, Material $material, BatchInventoryService $inventory, BackorderService $backorders)
     {
         if ($material->archived_at) {
             return back()->with('error', "{$material->name} is archived. Restore it first.");
@@ -52,7 +54,7 @@ class MaterialController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        return back()->with('success', "Restocked {$material->name}: batch {$batch->batch_number}.");
+        return back()->with('success', "Restocked {$material->name}: batch {$batch->batch_number}." . $backorders->fillAfterRestock(Auth::id()));
     }
 
     // "Delete" archives instead of removing the record. Its stock alerts resolve.

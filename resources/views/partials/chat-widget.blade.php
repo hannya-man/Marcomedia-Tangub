@@ -24,14 +24,14 @@
          x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95 translate-y-2" x-transition:enter-end="opacity-100 scale-100 translate-y-0"
          x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
          style="display:none;"
-         class="absolute bottom-[4.5rem] right-0 w-80 sm:w-96 h-[28rem] bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl flex flex-col overflow-hidden">
+         class="absolute bottom-[4.5rem] right-0 w-80 sm:w-96 h-[28rem] bg-white rounded-xl border border-slate-200 shadow-xl flex flex-col overflow-hidden">
 
-        <div class="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between flex-shrink-0">
+        <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
             <div class="flex items-center gap-2">
                 <i data-lucide="message-circle" class="w-4 h-4 text-brand-600"></i>
-                <p class="text-sm font-semibold text-ink dark:text-white">Staff Chat</p>
+                <p class="text-sm font-semibold text-ink">Staff Chat</p>
             </div>
-            <button @click="open = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"><i data-lucide="x" class="w-4 h-4"></i></button>
+            <button @click="open = false" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-4 h-4"></i></button>
         </div>
 
         <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-3">
@@ -41,7 +41,7 @@
 
                     <div class="relative max-w-[80%]">
                         <div class="rounded-xl px-3 py-2 text-sm"
-                             :class="m.is_mine ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-slate-100 dark:bg-slate-700 text-ink dark:text-white rounded-bl-sm'">
+                             :class="m.is_mine ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-slate-100 text-ink rounded-bl-sm'">
                             <span x-text="m.message" class="whitespace-pre-wrap break-words"></span>
                         </div>
 
@@ -50,14 +50,14 @@
                              class="absolute -top-3 flex items-center gap-1" :class="m.is_mine ? 'left-0' : 'right-0'">
                             <div class="relative" x-data="{ pickerOpen: false }">
                                 <button @click="pickerOpen = !pickerOpen" title="React"
-                                    class="w-6 h-6 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 shadow-sm flex items-center justify-center text-xs hover:scale-110 transition-transform">
+                                    class="w-6 h-6 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-xs hover:scale-110 transition-transform">
                                     🙂
                                 </button>
                                 {{-- Emoji popover --}}
                                 <div x-show="pickerOpen" @click.outside="pickerOpen = false"
                                      x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-90" x-transition:enter-end="opacity-100 scale-100"
                                      style="display:none;"
-                                     class="absolute bottom-full mb-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-md px-2 py-1 flex gap-1 z-10"
+                                     class="absolute bottom-full mb-1 bg-white border border-slate-200 rounded-full shadow-md px-2 py-1 flex gap-1 z-10"
                                      :class="m.is_mine ? 'right-0' : 'left-0'">
                                     <template x-for="emoji in ['👍','❤️','😂','🎉','😮']" :key="emoji">
                                         <button @click="react(m, emoji); pickerOpen = false" class="text-sm hover:scale-125 transition-transform" x-text="emoji"></button>
@@ -71,7 +71,7 @@
                     <div class="flex flex-wrap gap-1 mt-1" x-show="Object.keys(m.reactions || {}).length > 0">
                         <template x-for="[emoji, userIds] in Object.entries(m.reactions || {})" :key="emoji">
                             <button @click="react(m, emoji)"
-                                class="text-[11px] bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full px-1.5 py-0.5 flex items-center gap-1">
+                                class="text-[11px] bg-slate-100 hover:bg-slate-200 rounded-full px-1.5 py-0.5 flex items-center gap-1">
                                 <span x-text="emoji"></span><span x-text="userIds.length"></span>
                             </button>
                         </template>
@@ -84,9 +84,9 @@
             <p x-show="messages.length === 0" class="text-center text-xs text-slate-400 mt-10">No messages yet — say hello 👋</p>
         </div>
 
-        <form @submit.prevent="send()" class="p-3 border-t border-slate-100 dark:border-slate-700 flex gap-2 flex-shrink-0">
+        <form @submit.prevent="send()" class="p-3 border-t border-slate-100 flex gap-2 flex-shrink-0">
             <input type="text" x-model="draft" placeholder="Message the team..."
-                   class="flex-1 text-sm rounded-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 dark:text-white px-4 py-2">
+                   class="flex-1 text-sm rounded-full border border-slate-300 bg-white px-4 py-2">
             <button type="submit" :disabled="!draft.trim()"
                 class="w-9 h-9 rounded-full bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white flex items-center justify-center flex-shrink-0">
                 <i data-lucide="send" class="w-4 h-4"></i>
@@ -149,7 +149,9 @@ function staffChat() {
 
         async loadHistory() {
             if (this.historyLoaded) return;
-            const res = await fetch('{{ route("chat.history") }}');
+            // Asks for JSON: after a logout in another tab, the poll gets a 401 instead of being
+            // remembered as the page to go back to after the next login.
+            const res = await fetch('{{ route("chat.history") }}', { headers: { 'Accept': 'application/json' } });
             const data = await res.json();
             this.messages = data.messages;
             if (this.messages.length) this.lastId = this.messages[this.messages.length - 1].id;
@@ -159,7 +161,7 @@ function staffChat() {
 
         async poll() {
             if (!this.historyLoaded) { await this.loadHistory(); return; }
-            const res = await fetch(`{{ route('chat.poll') }}?since=${this.lastId}`);
+            const res = await fetch(`{{ route('chat.poll') }}?since=${this.lastId}`, { headers: { 'Accept': 'application/json' } });
             const data = await res.json();
             if (data.messages.length) {
                 // Only the message list re-renders (Alpine's x-for keys off

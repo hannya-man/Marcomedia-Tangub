@@ -27,6 +27,8 @@ use Illuminate\Support\Str;
  *  2. One open (active) batch per material. Opening a new one closes the old one.
  *  3. Jobs and production runs take from the active batch. When it reaches 0 it closes
  *     and the oldest sealed pack in the store opens, so a sale is never blocked by paperwork.
+ *     A job the store is short for throws OutOfStockException: Billing/POS still sells it, on
+ *     order, and it takes its stock when the stock comes in (BackorderService).
  *  4. Anything that is not a job (breakage, miscuts, counts, voids, leftovers) is a signed
  *     row in batch_adjustments. Every batch balances:
  *        opening_quantity - SUM(consumptions) + SUM(adjustments) = remaining_quantity
@@ -34,10 +36,12 @@ use Illuminate\Support\Str;
  *  6. Two kinds of material (materials.inventory_type):
  *       continuous - fabric rolls, thread, liquids. Never deducted per item: jobs and production
  *                    runs skip them, and staff log each pull with pullForUse().
- *                    A sheet material (sintra board) is continuous, in sq ft, one batch per sheet.
- *                    Staff log each job with cutFromSheet() or useWholeSheet().
  *       discrete   - PVC cards, RFID chips, fasteners. Counted 1 to 1 and deducted automatically
  *                    by jobs and production runs. A material with no type yet behaves as discrete.
+ *     Boards and rolls of a set size (sintra board, tarpaulin) have fixed yields. They are never
+ *     cut by any size: cutBoards() turns whole boards into standard pieces (one batch of
+ *     cut_yield pieces per board), and jobs take pieces. A job short of pieces cuts the next
+ *     board itself. A custom size is charged as the nearest standard piece (SheetYield).
  *  7. A production run that fails (machine or process error) is a rejected output. Its materials
  *     are logged as 'wasted'. Scrap sold from it is revenue, but never profit.
  *
@@ -331,13 +335,16 @@ class BatchInventoryService
         }
 
         return DB::transaction(function () use ($material, $qty, $link, $userId) {
-            // Step 1. Lock the material row. Two cashiers can't take the same sheet.
+            // Step 1. Lock the material row (a piece's board first). Two cashiers can't take the same sheet.
+            $this->lockWithBoards([$material->id]);
             $material = $this->lockMaterial($material->id);
             if ($material->archived_at) {
                 throw new InventoryException("{$material->name} is archived and can't be used.");
             }
 
             // Step 2. Check the whole amount first (active batch + sealed packs in the store).
+            // Pieces of a board that are short: cut the next whole boards for them first.
+            $this->ensurePieces($material, $qty, $userId);
             $available = $this->storeAvailable($material->id);
             if ($qty - $available > self::EPSILON) {
                 $message = "Not enough {$material->name} in the store: need {$this->fmt($qty)} {$material->unit}, have {$this->fmt($available)}.";
@@ -346,7 +353,7 @@ class BatchInventoryService
                 if ($warehouse > 0) {
                     $message .= " {$this->fmt($warehouse)} {$material->unit} is in the warehouse. Move a pack to the store first.";
                 }
-                throw new InventoryException($message);
+                throw new OutOfStockException($message);
             }
 
             $revenue = round((float) ($link['revenue'] ?? 0), 2);
@@ -415,10 +422,37 @@ class BatchInventoryService
 
         return DB::transaction(function () use ($item, $userId, $offcutIds) {
             $variant = ProductVariant::findOrFail($item->product_variant_id);
+            $all = $variant->materials()->withPivot('consumption_type')->get();
             // Continuous materials (fabric, ink) are never deducted per item: staff log each pull.
-            $lines = $variant->materials()->withPivot('consumption_type')->get()
-                ->reject(function ($material) { return $material->inventory_type === 'continuous'; })
-                ->values();
+            // Boards and rolls aren't either: the item takes standard pieces cut from them.
+            $lines = $all->reject(function ($material) {
+                return $material->inventory_type === 'continuous' || $material->isSheet();
+            })->values();
+            $needs = $lines->map(function ($material) use ($item) {
+                return $this->bomQuantity($material, $item);
+            })->all();
+
+            // Cut from boards or rolls: charged as the nearest standard piece up for its size.
+            $stocks = $all->filter(function ($material) { return $material->isSheet(); });
+            if ($stocks->isNotEmpty()) {
+                [$w, $h] = $this->sizeOf($item);
+                $cut = $this->chooseCut($stocks, $w, $h, (int) $item->quantity);
+                if (!$cut) {
+                    throw new InventoryException("A {$this->sizeLabel($w, $h)} {$item->item_name} is bigger than any "
+                        . $stocks->map->sheetNoun()->unique()->implode(' or ') . " it's cut from.");
+                }
+                if ($cut['available'] < $cut['blocks'] * (int) $item->quantity) {
+                    $fits = collect(SheetYield::options(Material::whereIn('cut_from_id', $stocks->pluck('id'))->with('cutFrom')->get(), $w, $h))
+                        ->map(function ($o) { return $o['piece']->cutFrom->name; })->unique()->values();
+                    throw new OutOfStockException("Not enough in the store for {$this->fmt($item->quantity)} x {$item->item_name}, {$this->sizeLabel($w, $h)}: "
+                        . ($fits->count() === 1 ? "{$fits[0]} is out." : 'it fits ' . $fits->implode(', ') . ', and none has enough.')
+                        . ' Restock it, or move some from the warehouse.');
+                }
+                $item->forceFill(['cut_material_id' => $cut['piece']->id, 'cut_blocks' => $cut['blocks']])->save();
+                $lines->push($cut['piece']);
+                $needs[] = $this->q($cut['blocks'] * $item->quantity);
+            }
+
             if ($lines->isEmpty()) {
                 if ($offcutIds) {
                     throw new InventoryException("{$item->item_name} has no materials listed, so it can't use an offcut.");
@@ -426,12 +460,9 @@ class BatchInventoryService
                 return collect();
             }
 
-            // Lock every material this item uses, lowest id first, before touching anything.
-            $this->lockMaterials($lines->pluck('id')->all());
-
-            $needs = $lines->map(function ($material) use ($item) {
-                return $this->bomQuantity($material, $item);
-            })->all();
+            // Lock every material this item uses (and the boards its pieces come from), lowest id
+            // first, before touching anything.
+            $this->lockWithBoards($lines->pluck('id')->all());
             $offcuts = $this->claimableOffcuts($offcutIds, $lines);
             $shares = $this->splitRevenue((float) $item->subtotal, $lines, $needs);
 
@@ -633,19 +664,18 @@ class BatchInventoryService
     }
 
     // =====================================================================
-    // 4c. Sheet materials (sintra board)
+    // 4c. Boards and rolls (sintra board, tarpaulin)
     // =====================================================================
 
     /**
-     * Sheets come in whole, and each sheet is its own sealed batch holding its area in sq ft:
-     * OCT-2026-SB3-1, OCT-2026-SB3-2, ... That way a job can take a whole sheet, or cut its
-     * size from the open sheet and leave the rest for the next jobs.
+     * Boards and rolls come in whole, and each is its own sealed batch holding its area in sq ft:
+     * OCT-2026-SB-1, OCT-2026-SB-2, ... cutBoards() later turns a whole one into standard pieces.
      */
     public function restockSheets(Material $material, int $sheets, string $location, ?int $userId, ?float $costPerSheet = null): Collection
     {
         $this->assertLocation($location);
         if ($sheets < 1) {
-            throw new InventoryException('Enter how many sheets came in.');
+            throw new InventoryException('Enter how many came in.');
         }
 
         return DB::transaction(function () use ($material, $sheets, $location, $userId, $costPerSheet) {
@@ -673,97 +703,208 @@ class BatchInventoryService
         });
     }
 
+    // =====================================================================
+    // 4d. Fixed yields: boards and rolls cut into standard pieces
+    // =====================================================================
+
     /**
-     * A job cut to size from the open sheet ("by batch"): only its area comes off, and the rest
-     * of the sheet stays for the next jobs. $unit is 'in' or 'ft'; the area is in sq ft.
-     * If the open sheet runs out, the rest of it goes to this job and the next sheet opens.
+     * Cut whole boards (or rolls) into pieces of one standard size. Each board becomes its own
+     * batch of cut_yield pieces, and a piece costs the board's cost / yield, so the trim is paid
+     * for in the pieces. Boards go oldest first, from the store, whole ones only: nothing is cut
+     * by any size, and there are no offcuts to keep track of.
+     *
+     * @return Collection the new batches of pieces, one per board
      */
-    public function cutFromSheet(Material $material, float $width, float $height, string $unit, int $pieces, ?string $note, ?int $userId, ?int $saleId = null): Collection
+    public function cutBoards(Material $piece, int $boards, ?int $userId): Collection
     {
-        $this->sheetArea($material);   // sheet materials only
-        if ($width <= 0 || $height <= 0 || $pieces < 1) {
-            throw new InventoryException('Enter the width, the height and how many pieces.');
+        if ($boards < 1) {
+            throw new InventoryException('Enter how many to cut.');
         }
 
-        $perFoot = $unit === 'in' ? 12 : 1;
-        $w = $width / $perFoot;
-        $h = $height / $perFoot;
-        $size = "{$this->fmt($width)} x {$this->fmt($height)} {$unit}";
-        if (max($w, $h) - max((float) $material->sheet_width, (float) $material->sheet_height) > self::EPSILON
-            || min($w, $h) - min((float) $material->sheet_width, (float) $material->sheet_height) > self::EPSILON) {
-            throw new InventoryException("A {$size} piece doesn't fit on one {$material->sheetLabel()} sheet." . ($unit === 'ft' ? ' Was it in inches?' : ''));
-        }
+        return DB::transaction(function () use ($piece, $boards, $userId) {
+            $this->lockWithBoards([$piece->id]);
+            $piece = Material::with('cutFrom')->findOrFail($piece->id);
+            if (!$piece->isCutPiece()) {
+                throw new InventoryException("{$piece->name} is not a cut size of a board or roll.");
+            }
+            $this->assertEnoughBoards($piece, $boards);
 
-        $note = trim((string) $note);
-
-        return $this->consume($material, $w * $h * $pieces, [
-            'sale_id' => $saleId,
-            'note' => Str::limit("Cut {$size}" . ($pieces > 1 ? ", {$pieces} pcs" : '') . ($note !== '' ? ": {$note}" : ''), 250),
-        ], $userId);
+            return $this->cutBoardsLocked($piece, $boards, $userId, 'manual');
+        });
     }
 
     /**
-     * A job that takes a whole sheet ("full").
-     *   rest - everything left on the open sheet goes to this job, and the sheet closes.
-     *   new  - the next sealed sheet in the store goes to this job whole, and the open sheet
-     *          stays open for small cuts. The new sheet goes straight from sealed to used up,
-     *          so there is still only one open batch.
+     * The standard piece a w x h (inches) item is charged as, from the boards or rolls it's cut
+     * from: the nearest piece up the store can supply for $units items (cut pieces, and whole
+     * boards it can still cut), else the nearest piece up at all. Null if it fits none.
+     *
+     * @return array{piece: Material, blocks: int, area: float, available: int}|null
      */
-    public function useWholeSheet(Material $material, string $which, ?string $note, ?int $userId, ?int $saleId = null): Collection
+    public function chooseCut(Collection $stocks, float $w, float $h, int $units = 1): ?array
     {
-        $this->sheetArea($material);   // sheet materials only
-        if (!in_array($which, ['rest', 'new'], true)) {
-            throw new InventoryException('Pick the rest of the open sheet or a new sheet.');
+        $pieces = $this->piecesOf($stocks);
+        $options = SheetYield::options($pieces, $w, $h);
+        $available = [];
+        foreach ($options as $option) {
+            $available[$option['piece']->id] = $this->cutAvailable($option['piece']);
         }
-        $note = trim((string) $note);
 
-        return DB::transaction(function () use ($material, $which, $note, $userId, $saleId) {
-            $material = $this->lockMaterial($material->id);
-            if ($material->archived_at) {
-                throw new InventoryException("{$material->name} is archived and can't be used.");
-            }
+        return SheetYield::best($options, $available, $units);
+    }
 
-            if ($which === 'rest') {
-                $open = $this->currentOpenBatch($material->id);
-                if (!$open) {
-                    throw new InventoryException("{$material->name} has no open sheet. Take a new sheet instead.");
-                }
+    // The cut sizes (pieces) of these boards or rolls that are still in use, with their board loaded.
+    public function piecesOf(Collection $stocks): Collection
+    {
+        return Material::whereIn('cut_from_id', $stocks->pluck('id'))->whereNull('archived_at')
+            ->with('cutFrom')->orderBy('id')->get()
+            ->filter(function ($piece) { return $piece->cutFrom && $piece->cutFrom->archived_at === null; })
+            ->values();
+    }
 
-                return $this->consume($material, (float) $open->remaining_quantity, [
-                    'sale_id' => $saleId,
-                    'note' => Str::limit("Whole sheet (the rest of {$open->batch_number})" . ($note !== '' ? ": {$note}" : ''), 250),
-                ], $userId);
-            }
+    // Pieces the store can supply now: the cut ones, and the whole boards it can still cut into them.
+    public function cutAvailable(Material $piece): int
+    {
+        $whole = $this->wholeSheets($piece->cut_from_id)->count();
 
-            $sheet = InventoryBatch::where('material_id', $material->id)
-                ->where('location', 'store')->where('status', 'unopened')
-                ->orderBy('received_at')->orderBy('id')
-                ->lockForUpdate()->first();
-            if (!$sheet) {
-                $warehouse = InventoryBatch::where('material_id', $material->id)->where('location', 'warehouse')->where('status', 'unopened')->count();
-                throw new InventoryException("No sealed sheet of {$material->name} in the store."
-                    . ($warehouse ? " {$warehouse} in the warehouse: move one to the store first." : ''));
-            }
+        return (int) floor($this->storeAvailable($piece->id) + $whole * (int) $piece->cut_yield + self::EPSILON);
+    }
 
-            $row = $sheet->consumptions()->create([
-                'sale_id' => $saleId,
-                'quantity_consumed' => $this->q($sheet->remaining_quantity),
-                'revenue' => 0,
-                'user_id' => $userId,
-                'note' => Str::limit('Whole sheet' . ($note !== '' ? ": {$note}" : ''), 250),
-                'created_at' => now(),
+    /**
+     * A whole board (or roll) that can't be used: cracked, warped, spoiled in storage. Takes a
+     * part-used one first (from before fixed yields), else the oldest whole one in the store.
+     */
+    public function writeOffBoard(Material $board, string $reason, ?int $userId): BatchAdjustment
+    {
+        if (!$board->isSheet()) {
+            throw new InventoryException("{$board->name} is not a board or roll.");
+        }
+
+        $batch = InventoryBatch::where('material_id', $board->id)->where('status', 'open')->first()
+            ?? $this->wholeSheets($board->id)->orderBy('received_at')->orderBy('id')->first();
+        if (!$batch) {
+            throw new InventoryException("No {$board->name} in the store to write off.");
+        }
+
+        return $this->recordLoss($batch, 'damaged', (float) $batch->remaining_quantity, $reason, $userId);
+    }
+
+    // A piece that's short in the store: cut the next whole boards for it. Callers hold the locks.
+    private function ensurePieces(Material $piece, float $qty, ?int $userId): void
+    {
+        if (!$piece->isCutPiece()) {
+            return;
+        }
+
+        $short = $this->q($qty - $this->storeAvailable($piece->id));
+        if ($short <= self::EPSILON) {
+            return;
+        }
+
+        $boards = (int) ceil($short / max(1, (int) $piece->cut_yield) - self::EPSILON);
+        $this->assertEnoughBoards($piece, $boards, $qty);
+        $this->cutBoardsLocked($piece, $boards, $userId, 'auto');
+    }
+
+    private function assertEnoughBoards(Material $piece, int $boards, ?float $forQty = null): void
+    {
+        $board = $piece->cutFrom;
+        $whole = $this->wholeSheets($board->id)->count();
+        if ($boards <= $whole) {
+            return;
+        }
+
+        $noun = $board->sheetNoun() . ($whole === 1 ? '' : 's');
+        $ready = $this->fmt($this->storeAvailable($piece->id));
+        $message = $forQty === null
+            ? "Only {$whole} whole {$noun} of {$board->name} in the store."
+            : ($board->isRoll()
+                ? "Not enough {$board->name} for {$this->fmt($forQty)} ft: {$ready} ft measured off and {$whole} whole {$noun} in the store."
+                : "Not enough {$board->name} for {$this->fmt($forQty)} {$piece->unit} of {$piece->cutLabel()}: {$ready} cut and {$whole} whole {$noun} in the store.");
+        $warehouse = InventoryBatch::where('material_id', $board->id)->where('location', 'warehouse')->where('status', 'unopened')->count();
+        if ($warehouse > 0) {
+            $message .= " {$warehouse} in the warehouse: move " . ($warehouse === 1 ? 'it' : 'them') . ' to the store first.';
+        }
+
+        throw new OutOfStockException($message);
+    }
+
+    // Callers hold the locks on the board and the piece, and checked there are enough boards.
+    private function cutBoardsLocked(Material $piece, int $boards, ?int $userId, string $how): Collection
+    {
+        $board = $piece->cutFrom;
+        if (!$board || (int) $piece->cut_yield < 1) {
+            throw new InventoryException("{$piece->name} is not a cut size of a board or roll.");
+        }
+        if ($piece->archived_at || $board->archived_at) {
+            throw new InventoryException(($board->archived_at ? $board->name : $piece->name) . ' is archived.');
+        }
+
+        $sheets = $this->wholeSheets($board->id)
+            ->orderByRaw("status = 'open' DESC")->orderBy('received_at')->orderBy('id')
+            ->limit($boards)->lockForUpdate()->get();
+
+        $made = collect();
+        foreach ($sheets as $sheet) {
+            $area = (float) $sheet->remaining_quantity;
+            $batch = $this->createBatch($piece, now(), [
+                'purchase_order_item_id' => null,
+                'location' => 'store',
+                'opening_quantity' => $piece->cut_yield,
+                'remaining_quantity' => $piece->cut_yield,
+                'cost_per_unit' => $sheet->cost_per_unit !== null ? round((float) $sheet->cost_per_unit * $area / $piece->cut_yield, 2) : null,
+                'received_by' => $userId,
             ]);
 
+            $sheet->consumptions()->create([
+                'quantity_consumed' => $this->q($area),
+                'revenue' => 0,
+                'user_id' => $userId,
+                'note' => Str::limit(($board->isRoll() ? "Measured into {$piece->cut_yield} ft" : "Cut into {$piece->cut_yield} x {$piece->cutLabel()}")
+                    . ": {$batch->batch_number}", 250),
+                'created_at' => now(),
+            ]);
             // Saved in one go by markClosed().
             $sheet->remaining_quantity = 0;
-            $sheet->opened_at = now();
-            $sheet->open_method = 'manual';
-            $sheet->opened_by = $userId;
+            if ($sheet->status === 'unopened') {
+                $sheet->opened_at = now();
+                $sheet->open_method = $how;
+                $sheet->opened_by = $userId;
+            }
             $this->markClosed($sheet, 'empty', $userId);
-            $this->afterStockChange($material);
+            $made->push($batch);
+        }
 
-            return collect([$row]);
-        });
+        $this->afterStockChange($board);
+        $this->afterStockChange($piece);
+
+        return $made;
+    }
+
+    // Whole boards or rolls in the store: sealed ones, and an opened one nothing was taken from.
+    private function wholeSheets(int $boardId)
+    {
+        return InventoryBatch::where('material_id', $boardId)->where('location', 'store')
+            ->where(function ($q) {
+                $q->where('status', 'unopened')
+                    ->orWhere(function ($q) {
+                        $q->where('status', 'open')->whereColumn('remaining_quantity', '>=', 'opening_quantity');
+                    });
+            });
+    }
+
+    // A sale line's size in inches (width and height are kept in feet).
+    private function sizeOf(SaleItem $item): array
+    {
+        if ((float) $item->width <= 0 || (float) $item->height <= 0) {
+            throw new InventoryException("Pick a size for {$item->item_name}.");
+        }
+
+        return [(float) $item->width * 12, (float) $item->height * 12];
+    }
+
+    private function sizeLabel(float $w, float $h): string
+    {
+        return SheetYield::label($w, $h);
     }
 
     /**
@@ -800,7 +941,7 @@ class BatchInventoryService
         }
 
         return DB::transaction(function () use ($data, $needs, $reason, $itemName, $userId) {
-            $this->lockMaterials(array_keys($needs));
+            $this->lockWithBoards(array_keys($needs));
 
             // Check every material first, so one short material saves nothing.
             foreach ($needs as $id => $qty) {
@@ -808,6 +949,7 @@ class BatchInventoryService
                 if ($material->archived_at) {
                     throw new InventoryException("{$material->name} is archived.");
                 }
+                $this->ensurePieces($material, $qty, $userId);   // spoiled pieces: cut a board for them if short
                 $available = $this->storeAvailable($id);
                 if ($qty - $available > self::EPSILON) {
                     throw new InventoryException("Not enough {$material->name} in the store: the rejects used {$this->fmt($qty)} {$material->unit}, the store has {$this->fmt($available)}.");
@@ -1211,6 +1353,18 @@ class BatchInventoryService
         $material->stock_quantity = $this->q(InventoryBatch::where('material_id', $material->id)->usable()->sum('remaining_quantity'));
         $material->save();
         $this->alerts->evaluate($material);
+        // A piece's board alerts for it: its pieces count as the board's stock.
+        if ($material->cut_from_id && $material->cutFrom) {
+            $this->alerts->evaluate($material->cutFrom);
+        }
+    }
+
+    // Locks these materials and the boards their pieces are cut from, lowest id first like every
+    // lock here, so a board and its pieces are always locked in the same order.
+    private function lockWithBoards(array $ids): void
+    {
+        $boards = Material::whereIn('id', $ids)->whereNotNull('cut_from_id')->pluck('cut_from_id')->all();
+        $this->lockMaterials(array_merge($ids, $boards));
     }
 
     private function lockMaterial(int $id): Material

@@ -22,6 +22,13 @@ class ProductVariant extends Model
     public function product() { return $this->belongsTo(Product::class); }
     public function movements() { return $this->hasMany(InventoryMovement::class); }
 
+    // A product's sizes in the shop's order (its price list's). Ones added later have no place,
+    // so they follow, oldest first.
+    public function scopeInShopOrder($query)
+    {
+        return $query->orderByRaw('COALESCE(product_variants.sort_order, 65535)')->orderBy('product_variants.id');
+    }
+
     // A variant can consume MULTIPLE materials per unit — e.g. a
     // sublimation shirt uses fabric AND ink, at different rates each.
     // consumption_type: fixed per unit, or by job size (per_area / per_length).

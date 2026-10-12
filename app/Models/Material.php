@@ -9,10 +9,15 @@ class Material extends Model
     // stock_quantity is a cached total of all unclosed batches (store + warehouse).
     // BatchInventoryService keeps it in sync. Never edit it by hand.
     // low_stock_threshold is the reorder point.
-    // sheet_width x sheet_height (feet) is set only for sheet materials, like sintra board:
-    // stock is in sq ft, pack_size is the sq ft in one sheet, and each sheet is its own batch.
+    // Boards and rolls (sheet_kind board/roll), like sintra board and tarpaulin: sheet_width x
+    // sheet_height (feet) is one board or roll. Stock is in sq ft, pack_size is the sq ft in one,
+    // and each is its own batch. They are never cut by any size: they are cut whole into pieces.
+    // Pieces (cut_from_id = their board or roll) are discrete materials: one standard cut size,
+    // cut_width_in x cut_height_in, and cut_yield of them from one board. A roll's piece is one
+    // foot of it at full width. See SheetYield and BatchInventoryService::cutBoards().
     protected $fillable = [
         'material_category_id', 'name', 'code', 'unit', 'inventory_type', 'pack_size', 'sheet_width', 'sheet_height',
+        'sheet_kind', 'cut_from_id', 'cut_width_in', 'cut_height_in', 'cut_yield',
         'stock_quantity', 'low_stock_threshold', 'reorder_packs', 'default_supplier_id', 'cost_per_unit', 'archived_at',
     ];
 
@@ -22,6 +27,9 @@ class Material extends Model
         'pack_size' => 'decimal:3',
         'sheet_width' => 'decimal:2',
         'sheet_height' => 'decimal:2',
+        'cut_width_in' => 'decimal:2',
+        'cut_height_in' => 'decimal:2',
+        'cut_yield' => 'integer',
         'reorder_packs' => 'integer',
         'cost_per_unit' => 'decimal:2',
         'archived_at' => 'datetime',
@@ -37,6 +45,12 @@ class Material extends Model
     }
 
     public function batches() { return $this->hasMany(InventoryBatch::class); }
+
+    // A piece's board or roll, and a board's or roll's cut sizes.
+    public function cutFrom() { return $this->belongsTo(Material::class, 'cut_from_id'); }
+    // Smallest first, the whole board last: "Cut boards" opens on the first size, and a whole board
+    // listed first (it's usually the oldest) made "cut 1 board into 1 whole board" the default.
+    public function cutSizes() { return $this->hasMany(Material::class, 'cut_from_id')->orderByRaw('cut_width_in * cut_height_in')->orderBy('id'); }
 
     // The one batch staff are cutting from right now (null if none).
     public function activeBatch() { return $this->hasOne(InventoryBatch::class)->where('status', 'open'); }
@@ -92,15 +106,49 @@ class Material extends Model
 
     public function getStockStatusAttribute(): string
     {
-        if ($this->stock_quantity <= 0) return 'out_of_stock';
-        if ($this->stock_quantity <= $this->low_stock_threshold) return 'low_stock';
+        $stock = (float) $this->stock_quantity;
+        // A board's or roll's cut pieces are still its stock, in board terms (as the alerts count them).
+        if ($this->isSheet() && $this->sheetArea() > 0) {
+            foreach ($this->cutSizes as $piece) {
+                if ($piece->archived_at === null && $piece->cut_yield > 0) {
+                    $stock += (float) $piece->stock_quantity / $piece->cut_yield * $this->sheetArea();
+                }
+            }
+        }
+
+        if ($stock <= 0) return 'out_of_stock';
+        if ($stock <= $this->low_stock_threshold) return 'low_stock';
         return 'in_stock';
     }
 
-    // Cut by size from whole sheets, like sintra board.
+    // A board or roll of a set size, like sintra board or tarpaulin.
     public function isSheet(): bool
     {
         return (float) $this->sheet_width > 0 && (float) $this->sheet_height > 0;
+    }
+
+    public function isRoll(): bool
+    {
+        return $this->sheet_kind === 'roll';
+    }
+
+    // One cut size of a board or roll: "Sintra Board - Long (8.5 x 13 in)".
+    public function isCutPiece(): bool
+    {
+        return $this->cut_from_id !== null;
+    }
+
+    // "Long (8.5 x 13 in)" for a piece of "Sintra Board": its name without the board's.
+    public function cutLabel(): string
+    {
+        $board = $this->cutFrom?->name;
+        return $board && str_starts_with($this->name, $board . ' - ') ? substr($this->name, strlen($board) + 3) : $this->name;
+    }
+
+    // "board" or "roll", for messages.
+    public function sheetNoun(): string
+    {
+        return $this->isRoll() ? 'roll' : 'board';
     }
 
     // Sq ft in one sheet: 4 x 8 ft -> 32.
