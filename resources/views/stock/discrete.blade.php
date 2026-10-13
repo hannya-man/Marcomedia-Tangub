@@ -10,27 +10,26 @@
 @endif
 
 <div x-data="stockPage()">
-    <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
-        <p class="text-sm text-slate-500 max-w-2xl">
-            Single pieces counted one by one, like blank PVC cards, RFID chips and fasteners. Sales take them out of the active batch automatically, one for one.
-            Boards of a set size, like sintra board, are cut whole into standard sizes with a fixed yield: a sale takes the pieces.
-        </p>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <p class="text-sm text-slate-500">Counted materials: mug blanks, PVC cards, keychains, sintra boards.</p>
         <div class="flex gap-2 flex-shrink-0">
             <a href="{{ route('materials.archive', ['from' => 'discrete']) }}" class="text-sm px-4 py-2 border border-slate-300 text-slate-600 rounded-lg flex items-center gap-1.5">
                 <i data-lucide="archive" class="w-3.5 h-3.5"></i> Archive ({{ $archivedCount }})
             </a>
             <button type="button" @click="show('add')"
                 class="text-sm px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-1.5">
-                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add discrete material
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add material
             </button>
         </div>
     </div>
+
+    @include('stock._guide', ['kind' => 'discrete'])
 
     @include('stock._setup')
 
     @if($cards->isEmpty())
         <div class="bg-white rounded-xl border border-slate-200 p-10 text-center">
-            <p class="text-sm text-slate-500">No discrete materials yet. Add one, or pick Discrete for a material in the list above.</p>
+            <p class="text-sm text-slate-500">Nothing here yet. Press <strong>Add material</strong> to add blanks, cards or another material you count.</p>
         </div>
     @endif
 

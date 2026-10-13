@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Feature\Concerns\UsesTwoFactor;
 use Tests\TestCase;
 
 /**
@@ -15,7 +16,7 @@ use Tests\TestCase;
  */
 class FormsAndSessionTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, UsesTwoFactor;
 
     private User $owner;
 
@@ -27,7 +28,7 @@ class FormsAndSessionTest extends TestCase
             $this->markTestSkipped('These tests need MySQL or MariaDB.');
         }
 
-        $this->owner = User::create(['name' => 'Owner', 'email' => uniqid('admin') . '@example.com', 'password' => bcrypt('secret-password'), 'role' => 'admin']);
+        $this->owner = $this->withTwoFactor(User::create(['name' => 'Owner', 'email' => uniqid('admin') . '@example.com', 'password' => bcrypt('secret-password'), 'role' => 'admin']));
     }
 
     public function test_a_refused_add_product_comes_back_open_with_what_was_typed_and_why(): void

@@ -1,20 +1,22 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Models\ApprovalRequest;
 use App\Models\Material;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Category;
-use App\Models\SaleItem;
+use App\Services\Catalog\ProductEditor;
 use App\Services\Inventory\BackorderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 
 class InventoryController extends Controller
 {
+    public function __construct(private ProductEditor $products)
+    {
+    }
+
     public function index(Request $request)
     {
         // A board's cut sizes count toward its stock status (Material::getStockStatusAttribute).
@@ -37,114 +39,48 @@ class InventoryController extends Controller
         // "Made from" choices. Whole boards and rolls aren't: a product uses their standard pieces
         // ("Sintra Board - Long"), which cut the next board themselves when they run out.
         $materials = \App\Models\Material::whereNull('archived_at')->whereNull('sheet_width')->orderBy('name')->get();
+        // Products added or changed by cashiers, waiting for an owner (a cashier: their own).
+        $waitingCount = ApprovalRequest::pending()->whereIn('type', ['product.create', 'product.update'])
+            ->when($request->user()->role !== 'admin', fn ($q) => $q->where('requested_by', $request->user()->id))->count();
 
-        return view('inventory.index', compact('products', 'categories', 'archivedCount', 'materials'));
+        return view('inventory.index', compact('products', 'categories', 'archivedCount', 'materials', 'waitingCount'));
     }
 
     // Add Product now lives inline on the index page as a popout panel —
     // no separate create page needed anymore.
 
+    // An owner's new product is saved. A cashier's is checked the same way (so mistakes show at
+    // once) and goes to an owner for approval: nothing is added until it's approved.
     public function store(Request $request)
     {
-        // Sizes count only while "comes in different sizes" is ticked. Sizes added and then unticked
-        // were saved anyway: hidden from Products and Billing, and holding their SKUs.
-        if (! $request->boolean('has_variants')) {
-            $request->request->remove('variants');
+        $input = $this->products->normalizeNew($request->except(['_token', '_form']));
+        $validated = $this->products->validateNew($input);
+
+        if ($request->user()->role !== 'admin') {
+            ApprovalRequest::create([
+                'type' => 'product.create',
+                'requested_by' => $request->user()->id,
+                'summary' => "Add product '{$validated['name']}'",
+                'payload' => $input,
+            ]);
+
+            return redirect()->route('inventory.index')->with('success', "'{$validated['name']}' was sent to the owner for approval. It's added to Products once it's approved: see Approvals.");
         }
-        $this->blankMaterialsToNull($request);
 
-        $validated = $request->validate([
-            'category_id' => ['nullable', Rule::exists('categories', 'id')->whereNull('archived_at')],
-            'new_category_name' => ['nullable', 'string', 'max:100', 'regex:/[\pL\pN]/u'],
-            'name' => 'required|string|max:150',
-            'sku' => 'required|string|max:60|unique:products,sku',
-            'description' => 'nullable|string|max:2000',
-            'base_price' => 'required|numeric|min:0|max:9999999',
-            'has_variants' => 'boolean',
-            'track_inventory' => 'boolean',
-            'variants' => 'nullable|array|max:300|required_if:has_variants,1',
-            'variants.*.variant_name' => 'required|string|max:100',
-            // A SKU already on another size used to fail at the database, after the product was saved.
-            'variants.*.sku' => ['required', 'string', 'max:60', 'distinct', Rule::unique('product_variants', 'sku')],
-            'variants.*.price' => 'nullable|numeric|min:0|max:9999999',
-            'variants.*.low_stock_threshold' => 'nullable|integer|min:0|max:1000000',
-            'variants.*.materials' => 'nullable|array|max:20',
-            'variants.*.materials.*.material_id' => ['nullable', Rule::exists('materials', 'id')->whereNull('archived_at')],
-            'variants.*.materials.*.quantity_per_unit' => 'nullable|numeric|min:0|max:100000',
-        ], [
-            'sku.unique' => 'Another product already uses the SKU :input (one in the Archive counts too).',
-            'new_category_name.regex' => 'Use a category name with letters or numbers.',
-            'variants.required_if' => 'Add at least one size, or untick "This product comes in different sizes".',
-            'variants.*.variant_name.required' => 'Every size needs a name.',
-            'variants.*.sku.required' => 'Every size needs a SKU.',
-            'variants.*.sku.distinct' => 'Two sizes have the same SKU.',
-            'variants.*.sku.unique' => 'The SKU :input is already used by another size.',
-        ]);
-
-        $product = DB::transaction(fn () => $this->createProduct($request, $validated));
+        $product = $this->products->create($validated);
 
         return redirect()->route('inventory.index')->with('success', "Product '{$product->name}' created.");
     }
 
-    // All or nothing: a size that failed to save used to leave the product saved without it.
-    private function createProduct(Request $request, array $validated): Product
-    {
-        // If they typed a new category instead of picking one, create it now.
-        $categoryId = $validated['category_id'] ?? null;
-        if (!empty($validated['new_category_name'])) {
-            $category = Category::firstOrCreate(
-                ['slug' => str($validated['new_category_name'])->slug()],
-                ['name' => $validated['new_category_name']]
-            );
-            // The name of an archived category brings it back: the product was filed under a
-            // category no list shows.
-            if ($category->archived_at) {
-                $category->update(['archived_at' => null]);
-            }
-            $categoryId = $category->id;
-        }
-
-        $product = Product::create([
-            'category_id' => $categoryId,
-            'name' => $validated['name'],
-            'sku' => $validated['sku'],
-            'description' => $validated['description'] ?? null,
-            'base_price' => $validated['base_price'],
-            'has_variants' => ! empty($validated['variants']),
-            // An unticked box sends nothing, so "missing" means made to order. (The old default of
-            // true made every product a stocked one, whatever the box said.)
-            'track_inventory' => $request->boolean('track_inventory'),
-            'status' => 'active',
-        ]);
-
-        // Sizes are created at 0 stock — quantity only ever enters through
-        // a batch / restock transaction, never at product creation. This
-        // keeps Product (the master record) and Stock (a separate,
-        // batch-based concept) from getting tangled together.
-        foreach ($validated['variants'] ?? [] as $v) {
-            $variant = $product->variants()->create([
-                'variant_name' => $v['variant_name'],
-                'sku' => $v['sku'],
-                'price' => $v['price'] ?? null,
-                'stock_quantity' => 0,
-                'low_stock_threshold' => $v['low_stock_threshold'] ?? 5,
-                'reorder_point' => ($v['low_stock_threshold'] ?? 5) * 2,
-                'status' => 'active',
-            ]);
-
-            // Attach every material this size actually uses — a shirt can
-            // (and usually does) draw from more than one at once. One listed twice is one line.
-            $this->syncMaterials($variant, $v['materials'] ?? []);
-        }
-
-        return $product;
-    }
-
-    // The owner's edit page: the product, its sizes and their prices, and what each size is made of.
-    public function edit(Product $product)
+    // The edit page: the product, its sizes and their prices, and what each size is made of. A
+    // cashier's changes go to an owner for approval (update).
+    public function edit(Request $request, Product $product)
     {
         $product->load(['variants' => fn ($q) => $q->inShopOrder(), 'variants.materials']);
-        $cutIds = $product->variants->filter(fn ($v) => $this->isCut($v))->pluck('id')->values();
+        $cutIds = $product->variants->filter(fn ($v) => $this->products->isCut($v))->pluck('id')->values();
+        // A cashier's changes to this product still waiting for an owner: sending again replaces them.
+        $waiting = $request->user()->role === 'admin' ? null : ApprovalRequest::pending()
+            ->where('type', 'product.update')->where('product_id', $product->id)->where('requested_by', $request->user()->id)->latest()->first();
 
         // A save that was refused comes back with what was typed; else the product as it is.
         $rows = old('variants') !== null
@@ -180,176 +116,41 @@ class InventoryController extends Controller
         // Boards or rolls the sizes are cut from or printed on (a board's sizes are set on its card).
         $cutFrom = $product->variants->flatMap->materials->filter->isSheet()->unique('id')->values();
 
-        return view('inventory.edit', compact('product', 'rows', 'cutIds', 'cutFrom', 'materials', 'categories'));
+        return view('inventory.edit', compact('product', 'rows', 'cutIds', 'cutFrom', 'materials', 'categories', 'waiting'));
     }
 
+    // An owner's changes are saved. A cashier's are checked the same way and go to an owner for
+    // approval; sending again replaces their earlier changes to the same product still waiting.
     public function update(Request $request, Product $product)
     {
-        $this->blankMaterialsToNull($request);
+        $input = $this->products->normalizeChanges($request->except(['_token', '_method']));
+        $validated = $this->products->validateChanges($product, $input);
 
-        $validated = $request->validate([
-            'name' => 'required|string|max:150',
-            'sku' => ['required', 'string', 'max:60', Rule::unique('products', 'sku')->ignore($product->id)],
-            'category_id' => ['nullable', Rule::exists('categories', 'id')],
-            'description' => 'nullable|string|max:2000',
-            'base_price' => 'required|numeric|min:0|max:9999999',
-            'track_inventory' => 'boolean',
-            'variants' => 'nullable|array|max:300',
-            'variants.*.id' => 'nullable|integer',
-            'variants.*.variant_name' => 'required|string|max:100',
-            'variants.*.sku' => 'required|string|max:60|distinct',
-            'variants.*.price' => 'nullable|numeric|min:0|max:9999999',
-            'variants.*.low_stock_threshold' => 'nullable|integer|min:0|max:1000000',
-            'variants.*.active' => 'boolean',
-            'variants.*.remove' => 'boolean',
-            'variants.*.materials' => 'nullable|array|max:20',
-            'variants.*.materials.*.material_id' => ['nullable', Rule::exists('materials', 'id')],
-            'variants.*.materials.*.quantity_per_unit' => 'nullable|numeric|min:0|max:100000',
-        ], [
-            'variants.*.variant_name.required' => 'Every size needs a name.',
-            'variants.*.sku.required' => 'Every size needs a SKU.',
-            'variants.*.sku.distinct' => 'Two sizes have the same SKU.',
-        ]);
-
-        $existing = $product->variants()->with('materials')->get()->keyBy('id');
-        $rows = array_values($validated['variants'] ?? []);
-        $errors = [];
-        foreach ($rows as $i => $row) {
-            $id = $row['id'] ?? null;
-            if ($id && ! $existing->has($id)) {
-                $errors["variants.{$i}.id"] = "A size on the form isn't one of {$product->name}'s. Reload the page and try again.";
-            } elseif (ProductVariant::where('sku', $row['sku'])->when($id, fn ($q) => $q->where('id', '!=', $id))->exists()) {
-                $errors["variants.{$i}.sku"] = "The SKU {$row['sku']} is already used by another size.";
+        if ($request->user()->role !== 'admin') {
+            $changes = $this->products->describeChanges($product, $input);
+            if (! $changes) {
+                return back()->with('error', 'Nothing was changed, so nothing was sent.');
             }
+            ApprovalRequest::updateOrCreate(
+                ['type' => 'product.update', 'status' => 'pending', 'product_id' => $product->id, 'requested_by' => $request->user()->id],
+                ['summary' => "Change '{$product->name}'", 'payload' => $input]
+            );
+
+            return redirect()->to(session('inventory.list_url', route('inventory.index')))
+                ->with('success', "Your changes to {$product->name} were sent to the owner for approval. Nothing changes until it's approved: see Approvals.");
         }
 
-        // Switching between made to order and keeping a count changes how its sales take stock, so not
-        // while something sold is still waiting for stock.
-        $track = $request->boolean('track_inventory');
-        $switching = $track !== (bool) $product->track_inventory;
-        if ($switching && SaleItem::onOrder()->where('product_id', $product->id)
-                ->whereHas('sale', fn ($q) => $q->whereIn('status', ['pending', 'processing']))->exists()) {
-            $errors['track_inventory'] = "{$product->name} has items on order. Change how it's stocked once they've taken their stock, or are voided.";
-        }
-        if ($errors) {
-            throw ValidationException::withMessages($errors);
-        }
-
-        $hidden = DB::transaction(function () use ($product, $validated, $rows, $existing, $track, $switching) {
-            $product->update([
-                'name' => $validated['name'],
-                'sku' => $validated['sku'],
-                'category_id' => $validated['category_id'] ?? null,
-                'description' => $validated['description'] ?? null,
-                'base_price' => $validated['base_price'],
-                'track_inventory' => $track,
-            ]);
-            // Made to order kept no count (a void used to add one anyway): a count starts from 0,
-            // and what's on hand is added with Restock.
-            if ($switching && $track) {
-                $product->variants()->update(['stock_quantity' => 0, 'damaged_quantity' => 0]);
-            }
-
-            $hidden = [];
-            foreach ($rows as $row) {
-                $variant = isset($row['id']) ? $existing->get($row['id']) : null;
-                if (! empty($row['remove'])) {
-                    if ($variant && $this->variantUsed($variant)) {
-                        // Sold before: kept for its sales history, no longer sold.
-                        $variant->update(['status' => 'inactive']);
-                        $hidden[] = $variant->variant_name;
-                    } elseif ($variant) {
-                        $variant->delete();   // its recipe lines go with it
-                    }
-                    continue;
-                }
-
-                $threshold = $row['low_stock_threshold'] ?? null;
-                $values = [
-                    'variant_name' => $row['variant_name'],
-                    'sku' => $row['sku'],
-                    'price' => $row['price'] ?? null,   // blank: the base price, or at the counter
-                    'status' => ($row['active'] ?? true) ? 'active' : 'inactive',
-                ] + ($threshold !== null ? ['low_stock_threshold' => $threshold, 'reorder_point' => $threshold * 2] : []);
-
-                if ($variant) {
-                    $variant->update($values);
-                } else {
-                    $variant = $product->variants()->create($values + [
-                        'stock_quantity' => 0, 'low_stock_threshold' => $threshold ?? 5, 'reorder_point' => ($threshold ?? 5) * 2,
-                    ]);
-                }
-                // A size cut from a board or roll keeps its recipe: it's set on the board's card.
-                if (! $this->isCut($variant)) {
-                    $this->syncMaterials($variant, $row['materials'] ?? []);
-                }
-            }
-            $product->update(['has_variants' => $product->variants()->exists()]);
-
-            return $hidden;
-        });
+        $result = $this->products->update($product, $validated);
 
         $message = "Saved {$product->name}.";
-        if ($hidden) {
-            $message .= ' Hidden instead of removed, since they have sales: ' . implode(', ', $hidden) . '.';
+        if ($result['hidden']) {
+            $message .= ' Hidden instead of removed, since they have sales: ' . implode(', ', $result['hidden']) . '.';
         }
-        if ($switching && $track) {
+        if ($result['count_started']) {
             $message .= ' Its stock count starts at 0: add what you have with the + in Restock.';
         }
 
         return redirect()->to(session('inventory.list_url', route('inventory.index')))->with('success', $message);
-    }
-
-    // Native selects send "" for "none", and `nullable` only skips null: blanks become null first,
-    // so an empty material row doesn't fail `exists` and block the whole save.
-    private function blankMaterialsToNull(Request $request): void
-    {
-        $variantsInput = $request->input('variants', []);
-        foreach ($variantsInput as $i => $variant) {
-            foreach (['price', 'low_stock_threshold'] as $field) {
-                if (($variant[$field] ?? null) === '') {
-                    $variantsInput[$i][$field] = null;
-                }
-            }
-            foreach ($variant['materials'] ?? [] as $j => $vm) {
-                if (($vm['material_id'] ?? '') === '') {
-                    $variantsInput[$i]['materials'][$j]['material_id'] = null;
-                }
-                if (($vm['quantity_per_unit'] ?? '') === '') {
-                    $variantsInput[$i]['materials'][$j]['quantity_per_unit'] = null;
-                }
-            }
-        }
-        $request->merge(['variants' => $variantsInput]);
-    }
-
-    // Cut from a board or roll (sintra board, tarpaulin): its recipe is the board, by size.
-    private function isCut(ProductVariant $variant): bool
-    {
-        return $variant->materials->contains(fn ($m) => $m->isSheet());
-    }
-
-    // Sold, counted or written off before: removing it would break that history.
-    private function variantUsed(ProductVariant $variant): bool
-    {
-        return DB::table('sale_items')->where('product_variant_id', $variant->id)->exists()
-            || DB::table('inventory_movements')->where('product_variant_id', $variant->id)->exists()
-            || DB::table('physical_counts')->where('product_variant_id', $variant->id)->exists()
-            || DB::table('rejected_outputs')->where('product_variant_id', $variant->id)->exists();
-    }
-
-    // What one unit of the size takes: a fixed amount of each material. The same material twice adds up.
-    private function syncMaterials(ProductVariant $variant, array $lines): void
-    {
-        $sync = [];
-        foreach ($lines as $line) {
-            $id = (int) ($line['material_id'] ?? 0);
-            $qty = (float) ($line['quantity_per_unit'] ?? 0);
-            if ($id > 0 && $qty > 0) {
-                $sync[$id] = ['quantity_per_unit' => round(($sync[$id]['quantity_per_unit'] ?? 0) + $qty, 3), 'consumption_type' => 'fixed'];
-            }
-        }
-        $variant->materials()->sync($sync);
     }
 
     // Restock or manually adjust a single variant. Stock added goes first to items sold while it

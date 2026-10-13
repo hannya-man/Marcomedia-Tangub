@@ -40,9 +40,9 @@ class InventoryBatch extends Model
     public function consumptions() { return $this->hasMany(BatchConsumption::class); }
     public function adjustments() { return $this->hasMany(BatchAdjustment::class); }
     public function offcuts() { return $this->hasMany(MaterialOffcut::class, 'source_batch_id'); }
-    public function receiver() { return $this->belongsTo(User::class, 'received_by'); }
-    public function opener() { return $this->belongsTo(User::class, 'opened_by'); }
-    public function closer() { return $this->belongsTo(User::class, 'closed_by'); }
+    public function receiver() { return $this->belongsTo(User::class, 'received_by')->withTrashed(); }
+    public function opener() { return $this->belongsTo(User::class, 'opened_by')->withTrashed(); }
+    public function closer() { return $this->belongsTo(User::class, 'closed_by')->withTrashed(); }
 
     // Scope names avoid open()/close() below.
     public function scopeUnopened($query) { return $query->where('status', 'unopened'); }

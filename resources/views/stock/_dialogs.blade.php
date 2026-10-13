@@ -22,8 +22,8 @@
             @csrf
             <input type="hidden" name="inventory_type" value="{{ $kind }}">
             <div>
-                <p class="{{ $head }}">{{ $isCont ? 'Add continuous raw material' : 'Add discrete material' }}</p>
-                <p class="{{ $sub }}">{{ $isCont ? 'Measured by length or volume, like fabric, thread or ink.' : 'Single pieces you can count, like PVC cards or RFID chips.' }}</p>
+                <p class="{{ $head }}">{{ $isCont ? 'Add a material you measure' : 'Add a material you count' }}</p>
+                <p class="{{ $sub }}">{{ $isCont ? 'Used a little at a time, by length or volume: fabric, thread, ink.' : 'Single pieces you count one by one: PVC cards, mug blanks, keychains.' }}</p>
             </div>
             <div>
                 <label class="{{ $label }}">Name</label>
@@ -54,22 +54,22 @@
                             </div>
                         </div>
                         <div>
-                            <label class="{{ $label }}">{{ $isCont ? 'Rolls' : 'Boards' }} on hand now (optional)</label>
+                            <label class="{{ $label }}">{{ $isCont ? 'Rolls' : 'Boards' }} you have now (optional)</label>
                             <input type="number" step="1" min="0" max="500" name="sheets" class="{{ $input }}">
                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="{{ $label }}">Reorder at ({{ $isCont ? 'rolls' : 'boards' }})</label>
+                            <label class="{{ $label }}">Warn me at ({{ $isCont ? 'rolls' : 'boards' }} left)</label>
                             <input type="number" step="0.5" min="0" max="500" name="reorder_sheets" placeholder="1" class="{{ $input }}">
                         </div>
                         <div>
-                            <label class="{{ $label }}">Cost per {{ $isCont ? 'roll' : 'board' }} (optional)</label>
+                            <label class="{{ $label }}">Price paid per {{ $isCont ? 'roll' : 'board' }} (optional)</label>
                             <input type="number" step="0.01" min="0" name="cost_per_sheet" class="{{ $input }}">
                         </div>
                     </div>
                     <p class="text-xs text-slate-400">
-                        {{ $isCont ? 'A 50 m roll is 164 ft. Each roll on hand becomes its own batch.' : 'Each board on hand becomes its own batch. Then add the sizes you cut it into on its card.' }}
+                        {{ $isCont ? 'A 50 m roll is 164 ft.' : 'Then, on its card, press Add a size for each size you cut it into.' }}
                     </p>
                 </div>
             </template>
@@ -77,25 +77,25 @@
                 <div class="space-y-3">
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="{{ $label }}">Unit</label>
+                            <label class="{{ $label }}">{{ $isCont ? 'Measured in' : 'Counted in' }}</label>
                             <input type="text" name="unit" required maxlength="20" placeholder="{{ $isCont ? 'meters, ml' : 'pcs' }}" class="{{ $input }}">
                         </div>
                         <div>
-                            <label class="{{ $label }}">On hand now (optional)</label>
+                            <label class="{{ $label }}">How much you have now (optional)</label>
                             <input type="number" step="0.001" min="0" name="opening_stock" class="{{ $input }}">
                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="{{ $label }}">Reorder at</label>
+                            <label class="{{ $label }}">Warn me when it drops to</label>
                             <input type="number" step="0.001" min="0" name="low_stock_threshold" placeholder="5" class="{{ $input }}">
                         </div>
                         <div>
-                            <label class="{{ $label }}">Cost per unit (optional)</label>
+                            <label class="{{ $label }}">Price paid per unit (optional)</label>
                             <input type="number" step="0.01" min="0" name="cost_per_unit" class="{{ $input }}">
                         </div>
                     </div>
-                    <p class="text-xs text-slate-400">What's on hand becomes its first batch, with a batch number.</p>
+                    <p class="text-xs text-slate-400">What you have now is kept as its first pack.</p>
                 </div>
             </template>
             <div class="flex justify-end gap-2 pt-2">
@@ -108,10 +108,10 @@
         <form x-show="modal === 'restock'" style="display:none;" :action="m ? m.urls.restock : ''" method="POST" class="space-y-3">
             @csrf
             <div>
-                <p class="{{ $head }}">Restock</p>
+                <p class="{{ $head }}">Add stock</p>
                 <p class="{{ $sub }}">
-                    <span x-text="m ? m.name : ''"></span>.
-                    <span x-text="m && m.sheet ? 'Each ' + m.sheet.noun + ' becomes its own batch, with a batch number.' : 'The new stock becomes its own batch with a batch number.'"></span>
+                    <span x-text="m ? m.name : ''"></span>:
+                    <span x-text="m && m.sheet ? 'how many ' + m.sheet.noun + 's arrived?' : 'how much arrived? It\'s kept as a new pack, used after the ones you have.'"></span>
                 </p>
             </div>
             <div class="grid grid-cols-2 gap-3">
@@ -128,20 +128,20 @@
                     </div>
                 </template>
                 <div>
-                    <label class="{{ $label }}">Put it in</label>
+                    <label class="{{ $label }}">Where did you put it?</label>
                     <select name="location" class="{{ $input }}">
-                        <option value="store">Store</option>
-                        <option value="warehouse">Warehouse</option>
+                        <option value="store">Store (ready to use)</option>
+                        <option value="warehouse">Warehouse (backup)</option>
                     </select>
                 </div>
             </div>
             <div>
-                <label class="{{ $label }}" x-text="m && m.sheet ? 'Cost per ' + m.sheet.noun + ' (optional)' : 'Cost per unit (optional)'"></label>
+                <label class="{{ $label }}" x-text="m && m.sheet ? 'Price paid per ' + m.sheet.noun + ' (optional)' : 'Price paid per ' + (m ? m.unit : 'unit') + ' (optional)'"></label>
                 <input type="number" step="0.01" min="0" :name="m && m.sheet ? 'cost_per_sheet' : 'cost_per_unit'" class="{{ $input }}">
             </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" @click="hide()" class="{{ $btnCancel }}">Cancel</button>
-                <button type="submit" class="{{ $btnPrimary }}">Restock</button>
+                <button type="submit" class="{{ $btnPrimary }}">Add stock</button>
             </div>
         </form>
 
@@ -150,20 +150,20 @@
         <form x-show="modal === 'pull'" style="display:none;" :action="m ? m.urls.pull : ''" method="POST" class="space-y-3">
             @csrf
             <div>
-                <p class="{{ $head }}">Pull for use</p>
+                <p class="{{ $head }}">Record use</p>
                 <p class="{{ $sub }}">
                     <span x-text="m ? m.name : ''"></span>: <span x-text="m ? m.stock : ''"></span> <span x-text="m ? m.unit : ''"></span> in stock.
-                    It comes out of <span x-text="m && m.active_code ? m.active_code : (m && m.next_code ? m.next_code : 'the next pack')"></span>.
+                    What you used comes off the pack in use.
                 </p>
             </div>
             <div>
-                <label class="{{ $label }}">How much (<span x-text="m ? m.unit : ''"></span>)</label>
+                <label class="{{ $label }}">How much did you use? (<span x-text="m ? m.unit : ''"></span>)</label>
                 <input type="number" step="0.001" min="0.001" name="quantity" x-model="qty" required class="{{ $input }}">
                 <p x-show="tooMuch()" style="display:none;" class="text-xs text-amber-600 mt-1">That is more than what is in stock.</p>
             </div>
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="{{ $label }}">What for (optional)</label>
+                    <label class="{{ $label }}">What was it for? (optional)</label>
                     <input type="text" name="note" maxlength="255" placeholder="e.g. jersey printing" class="{{ $input }}">
                 </div>
                 <div>
@@ -173,7 +173,7 @@
             </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" @click="hide()" class="{{ $btnCancel }}">Cancel</button>
-                <button type="submit" class="{{ $btnPrimary }}">Save pull</button>
+                <button type="submit" class="{{ $btnPrimary }}">Save</button>
             </div>
         </form>
         @endif
@@ -182,28 +182,28 @@
         <form x-show="modal === 'open'" style="display:none;" :action="m ? m.urls.open : ''" method="POST" class="space-y-3">
             @csrf
             <div>
-                <p class="{{ $head }}">Open next pack</p>
-                <p class="{{ $sub }}"><span x-text="m ? m.next_code : ''"></span> becomes the active batch of <span x-text="m ? m.name : ''"></span>.</p>
+                <p class="{{ $head }}">Start a new pack</p>
+                <p class="{{ $sub }}">Start using the next unopened pack of <span x-text="m ? m.name : ''"></span>.</p>
             </div>
             <div x-show="m && m.active_code" style="display:none;" class="rounded-lg bg-amber-100 border border-amber-400 text-amber-700 px-3 py-2 text-sm">
-                <span x-text="m ? m.active_code : ''"></span> will be closed.
-                <span x-show="m && m.active_left > 0">It still has <span x-text="m ? m.active_left : ''"></span> <span x-text="m ? m.unit : ''"></span>, so say why it is written off.</span>
+                The pack in use now is marked finished.
+                <span x-show="m && m.active_left > 0">It still has <span x-text="m ? m.active_left : ''"></span> <span x-text="m ? m.unit : ''"></span> left, so say why the rest is thrown away.</span>
             </div>
             <div x-show="m && m.active_left > 0" style="display:none;">
-                <label class="{{ $label }}">Why is the rest written off?</label>
+                <label class="{{ $label }}">Why is the rest thrown away?</label>
                 <input type="text" name="write_off_reason" maxlength="255" placeholder="e.g. end of roll too short to use" :required="!!(m && m.active_left > 0)" class="{{ $input }}">
             </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" @click="hide()" class="{{ $btnCancel }}">Cancel</button>
-                <button type="submit" class="{{ $btnPrimary }}">Open pack</button>
+                <button type="submit" class="{{ $btnPrimary }}">Start new pack</button>
             </div>
         </form>
 
         {{-- Move the oldest warehouse pack to the store --}}
         <form x-show="modal === 'transfer'" style="display:none;" :action="m ? m.urls.transfer : ''" method="POST" class="space-y-3">
             @csrf
-            <p class="{{ $head }}" x-text="m && m.sheet ? 'Move a ' + m.sheet.noun + ' to the store?' : 'Move a pack to the store?'"></p>
-            <p class="{{ $sub }}">The oldest sealed <span x-text="m && m.sheet ? m.sheet.noun : 'pack'"></span> of <span x-text="m ? m.name : ''"></span> in the warehouse moves to the store, so it can be opened and used.</p>
+            <p class="{{ $head }}" x-text="m && m.sheet ? 'Bring a ' + m.sheet.noun + ' from the warehouse?' : 'Bring a pack from the warehouse?'"></p>
+            <p class="{{ $sub }}">The oldest unopened <span x-text="m && m.sheet ? m.sheet.noun : 'pack'"></span> of <span x-text="m ? m.name : ''"></span> moves from the warehouse to the store, ready to use.</p>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" @click="hide()" class="{{ $btnCancel }}">Cancel</button>
                 <button type="submit" class="{{ $btnPrimary }}">Move it</button>
@@ -214,15 +214,15 @@
         <form x-show="modal === 'loss'" style="display:none;" :action="m ? m.urls.loss : ''" method="POST" class="space-y-3">
             @csrf
             <div>
-                <p class="{{ $head }}">{{ $isCont ? 'Damaged' : 'Damaged pieces' }}</p>
-                <p class="{{ $sub }}"><span x-text="m ? m.active_code : ''"></span> has <span x-text="m ? m.active_left : ''"></span> <span x-text="m ? m.unit : ''"></span> left.</p>
+                <p class="{{ $head }}">Report damage</p>
+                <p class="{{ $sub }}"><span x-text="m ? m.name : ''"></span>: the pack in use has <span x-text="m ? m.active_left : ''"></span> <span x-text="m ? m.unit : ''"></span> left. What got damaged comes off it.</p>
             </div>
             <div>
-                <label class="{{ $label }}">How much (<span x-text="m ? m.unit : ''"></span>)</label>
+                <label class="{{ $label }}">How much got damaged? (<span x-text="m ? m.unit : ''"></span>)</label>
                 <input type="number" step="0.001" min="0.001" name="quantity" x-model="qty" required class="{{ $input }}">
             </div>
             <div>
-                <label class="{{ $label }}">Reason</label>
+                <label class="{{ $label }}">What happened?</label>
                 <input type="text" name="reason" required maxlength="255" placeholder="{{ $isCont ? 'e.g. water damage' : 'e.g. cracked in delivery' }}" class="{{ $input }}">
             </div>
             <div class="flex justify-end gap-2 pt-2">
@@ -235,11 +235,11 @@
         <form x-show="modal === 'count'" style="display:none;" :action="m ? m.urls.count : ''" method="POST" class="space-y-3">
             @csrf
             <div>
-                <p class="{{ $head }}">Count the active batch</p>
-                <p class="{{ $sub }}">The system says <span x-text="m ? m.active_code : ''"></span> has <span x-text="m ? m.active_left : ''"></span> <span x-text="m ? m.unit : ''"></span>.</p>
+                <p class="{{ $head }}">Fix the count</p>
+                <p class="{{ $sub }}">The system says the pack in use of <span x-text="m ? m.name : ''"></span> has <span x-text="m ? m.active_left : ''"></span> <span x-text="m ? m.unit : ''"></span> left. Check it, and type what's really there.</p>
             </div>
             <div>
-                <label class="{{ $label }}">Counted (<span x-text="m ? m.unit : ''"></span>)</label>
+                <label class="{{ $label }}">Really there (<span x-text="m ? m.unit : ''"></span>)</label>
                 <input type="number" step="0.001" min="0" name="counted" x-model="qty" required class="{{ $input }}">
             </div>
             <div>
@@ -248,7 +248,7 @@
             </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" @click="hide()" class="{{ $btnCancel }}">Cancel</button>
-                <button type="submit" class="{{ $btnPrimary }}">Save count</button>
+                <button type="submit" class="{{ $btnPrimary }}">Save</button>
             </div>
         </form>
 
@@ -258,8 +258,8 @@
             <div>
                 <p class="{{ $head }}">Cut boards</p>
                 <p class="{{ $sub }}">
-                    <span x-text="m ? m.name : ''"></span>: <span x-text="m && m.sheet ? m.sheet.whole : 0"></span> whole in the store.
-                    A board is cut whole into one size. Sales cut the next board themselves when a size runs out.
+                    <span x-text="m ? m.name : ''"></span>: <span x-text="m && m.sheet ? m.sheet.whole : 0"></span> whole boards in the store.
+                    Each board is cut into one size, and the pieces are ready to sell.
                 </p>
             </div>
             <div>
@@ -276,7 +276,7 @@
             </div>
             <p x-show="cut() && boards >= 1" class="text-sm text-ink">
                 Makes <strong x-text="(cut() ? cut().yield : 0) * (boards || 0)"></strong> pieces of <span x-text="cut() ? cut().label : ''"></span>.
-                <span class="text-slate-500"><span x-text="cut() ? cut().trim : 0"></span>% of each board is trim, paid for in the pieces' cost.</span>
+                <span class="text-slate-500"><span x-text="cut() ? cut().trim : 0"></span>% of each board is left over as trim.</span>
             </p>
             <p x-show="m && m.sheet && boards > m.sheet.whole" style="display:none;" class="text-xs text-amber-600">
                 Only <span x-text="m && m.sheet ? m.sheet.whole : 0"></span> whole in the store.
@@ -292,15 +292,15 @@
             @csrf
             <div>
                 <p class="{{ $head }}">Damaged <span x-text="m && m.sheet ? m.sheet.noun : ''"></span></p>
-                <p class="{{ $sub }}">One whole <span x-text="m && m.sheet ? m.sheet.noun : ''"></span> of <span x-text="m ? m.name : ''"></span> is written off.</p>
+                <p class="{{ $sub }}">One whole <span x-text="m && m.sheet ? m.sheet.noun : ''"></span> of <span x-text="m ? m.name : ''"></span> is taken off the stock.</p>
             </div>
             <div>
-                <label class="{{ $label }}">Reason</label>
+                <label class="{{ $label }}">What happened?</label>
                 <input type="text" name="reason" required maxlength="255" placeholder="e.g. cracked in storage" class="{{ $input }}">
             </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" @click="hide()" class="{{ $btnCancel }}">Cancel</button>
-                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md px-4 py-2">Write off</button>
+                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md px-4 py-2">Take it off</button>
             </div>
         </form>
 
@@ -309,7 +309,7 @@
             @csrf
             <div>
                 <p class="{{ $head }}">Add a size</p>
-                <p class="{{ $sub }}">A size <span x-text="m ? m.name : ''"></span> is cut into. How many one <span x-text="m && m.sheet ? m.sheet.label : ''"></span> board gives is worked out from the sizes.</p>
+                <p class="{{ $sub }}">A size you cut <span x-text="m ? m.name : ''"></span> into. How many pieces one <span x-text="m && m.sheet ? m.sheet.label : ''"></span> board gives is worked out for you.</p>
             </div>
             <div>
                 <label class="{{ $label }}">Name (optional)</label>
@@ -335,7 +335,7 @@
             </div>
             <p x-show="sizeYield() > 0" class="text-sm text-ink">One board gives <strong x-text="sizeYield()"></strong> pieces.</p>
             <p x-show="sw > 0 && sh > 0 && sizeYield() === 0" style="display:none;" class="text-xs text-amber-600">That doesn't fit on one board.<span x-show="su === 'ft'"> Was it in inches?</span></p>
-            <p class="text-xs text-slate-400">The items cut from this board get it as a size too.</p>
+            <p class="text-xs text-slate-400">Products cut from this board get this size too.</p>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" @click="hide()" class="{{ $btnCancel }}">Cancel</button>
                 <button type="submit" class="{{ $btnPrimary }} disabled:opacity-40" :disabled="sizeYield() === 0">Add size</button>
@@ -365,7 +365,7 @@
             @method('DELETE')
             <div>
                 <p class="{{ $head }}">Archive <span x-text="m ? m.name : ''"></span>?</p>
-                <p class="{{ $sub }}">It leaves this page and goes to the archive. Its batches and history are kept, and you can restore it any time.</p>
+                <p class="{{ $sub }}">It's hidden from this page and kept in the Archive, with its history. You can bring it back any time.</p>
             </div>
             <div x-show="m && (m.stock > 0{{ $isCont ? '' : ' || m.used_by > 0' }})" style="display:none;" class="rounded-lg bg-amber-100 border border-amber-400 text-amber-700 px-3 py-2 text-sm space-y-1">
                 <p x-show="m && m.stock > 0">It still has <span x-text="m && m.sheet ? m.sheet.whole + ' whole ' + m.sheet.noun + (m.sheet.whole === 1 ? '' : 's') : (m ? m.stock + ' ' + m.unit : '')"></span> in stock, which can't be used while it's archived.</p>

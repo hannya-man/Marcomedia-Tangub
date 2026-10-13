@@ -14,7 +14,7 @@ class PurchaseOrder extends Model
 
     public function supplier() { return $this->belongsTo(Supplier::class); }
     public function items() { return $this->hasMany(PurchaseOrderItem::class); }
-    public function creator() { return $this->belongsTo(User::class, 'created_by'); }
+    public function creator() { return $this->belongsTo(User::class, 'created_by')->withTrashed(); }
 
     // Still waiting for some or all packs.
     public function scopeOpen($query) { return $query->whereIn('status', ['ordered', 'partial']); }

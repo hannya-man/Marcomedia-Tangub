@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Models\ApprovalRequest;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Sale;
@@ -11,6 +12,7 @@ use App\Models\InventoryBatch;
 use App\Services\Inventory\BackorderService;
 use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\SheetYield;
+use App\Services\Sales\SaleVoider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -332,6 +334,9 @@ class POSController extends Controller
 
         $sales = $query->latest()->paginate(20)->withQueryString();
         $selectedSale = $request->filled('edit_sale') ? Sale::with('items')->find($request->query('edit_sale')) : null;
+        // Sales a cashier asked an owner to void, still waiting (keyed by sale id).
+        $voidRequested = ApprovalRequest::pending()->where('type', 'sale.void')
+            ->whereIn('sale_id', $sales->pluck('id'))->pluck('sale_id')->flip();
 
         // Orders as a separate concept from Sales is retired — Billing/POS
         // already creates a full Sale record for every transaction, so a
@@ -342,44 +347,39 @@ class POSController extends Controller
         $archivedOrdersCount = Order::where('status', 'archived')->count();
 
         return view('pos.transactions', compact(
-            'sales', 'selectedSale', 'archivedSalesCount', 'archivedOrdersCount'
+            'sales', 'selectedSale', 'archivedSalesCount', 'archivedOrdersCount', 'voidRequested'
         ));
     }
 
     // Void a sale (only pending/processing sales — a fully completed/released
     // sale needs a return process, not a void) and restore stock.
-    public function void(Sale $sale)
+    // An owner voids the sale. A cashier asks an owner to (Approvals), saying why: nothing is voided
+    // until it's approved.
+    public function void(Request $request, Sale $sale, SaleVoider $voider)
     {
-        if (!in_array($sale->status, ['pending', 'processing'])) {
+        if (! $voider->canVoid($sale)) {
             return back()->with('error', 'Only pending or processing sales can be voided.');
         }
 
-        DB::transaction(function () use ($sale) {
-            $inventory = app(BatchInventoryService::class);
-
-            foreach ($sale->items as $item) {
-                // Puts back any materials this line took from a batch. Safe to call twice. A line
-                // still on order took nothing.
-                $inventory->returnSaleItem($item, Auth::id(), "Voided sale {$sale->invoice_number}");
-
-                // A stocked item's count comes back, if the sale took it. Made-to-order items
-                // have no count: their materials came back above.
-                if ($item->variant && $item->product?->track_inventory && ! $item->isOnOrder()) {
-                    $item->variant->adjustStock(
-                        $item->quantity,
-                        'void',
-                        'sale_void',
-                        $sale->id,
-                        "Voided sale {$sale->invoice_number}",
-                        Auth::id()
-                    );
-                }
+        if ($request->user()->role !== 'admin') {
+            $request->validate(['reason' => 'required|string|max:500'], [
+                'reason.required' => 'Say why it should be voided, so the owner can decide.',
+            ]);
+            if (ApprovalRequest::pending()->where('type', 'sale.void')->where('sale_id', $sale->id)->exists()) {
+                return back()->with('error', "{$sale->invoice_number} is already waiting for the owner to approve voiding it.");
             }
-            $sale->update(['status' => 'voided']);
-        });
+            ApprovalRequest::create([
+                'type' => 'sale.void',
+                'requested_by' => $request->user()->id,
+                'sale_id' => $sale->id,
+                'summary' => "Void {$sale->invoice_number}",
+                'reason' => $request->input('reason'),
+            ]);
 
-        // What came back can go to items on order.
-        $filled = app(BackorderService::class)->fillAfterRestock(Auth::id());
+            return back()->with('success', "Asked the owner to void {$sale->invoice_number}. It stays as it is until it's approved: see Approvals.");
+        }
+
+        $filled = $voider->void($sale, $request->user());
 
         return back()->with('success', "Sale {$sale->invoice_number} voided, stock restored." . $filled);
     }
@@ -466,9 +466,11 @@ class POSController extends Controller
                 : back()->with('error', "{$sale->invoice_number} is voided. Ring it up again as a new sale instead.");
         }
         // Voiding through Edit goes through Void, so the stock comes back (setting the status alone
-        // left the materials used up).
+        // left the materials used up). A cashier asks an owner with the Void button instead.
         if ($validated['status'] === 'voided') {
-            return $this->void($sale);
+            return $request->user()->role === 'admin'
+                ? $this->void($request, $sale, app(SaleVoider::class))
+                : back()->with('error', "Use the red Void button to ask the owner to void {$sale->invoice_number}.");
         }
 
         $paid = round((float) $sale->amount_paid + (float) ($validated['additional_payment'] ?? 0), 2);

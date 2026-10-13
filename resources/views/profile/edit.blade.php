@@ -47,6 +47,28 @@
         </form>
     </div>
 
+    {{-- Two-step verification: its own page (set up, recovery codes, a new phone) --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-6 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-start gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {{ auth()->user()->hasTwoFactor() ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500' }}">
+                <i data-lucide="{{ auth()->user()->hasTwoFactor() ? 'shield-check' : 'shield' }}" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <p class="font-semibold text-ink">Two-step verification</p>
+                <p class="text-xs text-slate-500 mt-0.5">
+                    @if(auth()->user()->hasTwoFactor())
+                        On. Logging in asks for the code from your authenticator app.
+                    @else
+                        Off. Turn it on so logging in also needs a code from your phone.
+                    @endif
+                </p>
+            </div>
+        </div>
+        <a href="{{ route('two-factor.show') }}" class="text-sm font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg px-4 py-2">
+            {{ auth()->user()->hasTwoFactor() ? 'Manage' : 'Turn on' }}
+        </a>
+    </div>
+
     {{-- Password update --}}
     <div class="bg-white rounded-xl border border-slate-200 p-6">
         <p class="font-semibold text-ink mb-1">Update Password</p>

@@ -8,6 +8,7 @@ use App\Models\Sale;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Feature\Concerns\UsesTwoFactor;
 use Tests\TestCase;
 
 /**
@@ -16,7 +17,7 @@ use Tests\TestCase;
  */
 class EditProductTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, UsesTwoFactor;
 
     private User $owner;
     private User $cashier;
@@ -33,17 +34,20 @@ class EditProductTest extends TestCase
         $this->cashier = $this->user('cashier');
     }
 
-    public function test_the_owner_has_an_edit_button_and_a_cashier_does_not(): void
+    public function test_the_owners_edit_is_saved_and_a_cashiers_waits_for_approval(): void
     {
         [$item] = $this->item();
         $edit = route('inventory.edit', $item);
 
         $this->actingAs($this->owner)->get(route('inventory.index', ['search' => $item->name]))->assertOk()->assertSee($edit, false);
-        $this->get($edit)->assertOk()->assertSee('Sizes and prices');
+        $this->get($edit)->assertOk()->assertSee('Sizes and prices')->assertSee('Save changes');
 
-        $this->actingAs($this->cashier)->get(route('inventory.index', ['search' => $item->name]))->assertOk()->assertDontSee($edit, false);
-        $this->get($edit)->assertRedirect(route('pos.index'));
-        $this->put(route('inventory.update', $item), $this->form($item))->assertRedirect(route('pos.index'));
+        // A cashier can open it, but their changes go to an owner: nothing changes yet.
+        $this->actingAs($this->cashier)->get(route('inventory.index', ['search' => $item->name]))->assertOk()->assertSee($edit, false);
+        $this->get($edit)->assertOk()->assertSee('Send for approval');
+        $this->put(route('inventory.update', $item), $this->form($item, ['base_price' => 99]))->assertSessionHas('success');
+        $this->assertSame(0.0, (float) $item->fresh()->base_price);
+        $this->assertDatabaseHas('approval_requests', ['type' => 'product.update', 'product_id' => $item->id, 'status' => 'pending', 'requested_by' => $this->cashier->id]);
     }
 
     public function test_the_owner_sets_the_details_and_each_sizes_price(): void
@@ -162,7 +166,9 @@ class EditProductTest extends TestCase
 
     private function user(string $role): User
     {
-        return User::create(['name' => ucfirst($role), 'email' => uniqid($role) . '@example.com', 'password' => bcrypt('secret-password'), 'role' => $role]);
+        $user = User::create(['name' => ucfirst($role), 'email' => uniqid($role) . '@example.com', 'password' => bcrypt('secret-password'), 'role' => $role]);
+
+        return $role === 'admin' ? $this->withTwoFactor($user) : $user;
     }
 
     // A made-to-order item with two sizes and no prices: [item, Small, Large].

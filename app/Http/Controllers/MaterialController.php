@@ -54,7 +54,7 @@ class MaterialController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        return back()->with('success', "Restocked {$material->name}: batch {$batch->batch_number}." . $backorders->fillAfterRestock(Auth::id()));
+        return back()->with('success', "Added stock to {$material->name} (pack {$batch->batch_number})." . $backorders->fillAfterRestock(Auth::id()));
     }
 
     // "Delete" archives instead of removing the record. Its stock alerts resolve.

@@ -1,10 +1,10 @@
 {{-- Materials with no type yet. Picking one puts it under Continuous or Discrete. --}}
 @if($unset->count())
 <div class="mb-6 rounded-xl border border-amber-400 bg-amber-100 p-4">
-    <p class="text-sm font-medium text-ink">Not set up yet ({{ $unset->count() }})</p>
+    <p class="text-sm font-medium text-ink">New materials to sort ({{ $unset->count() }})</p>
     <p class="text-xs text-slate-600 mb-2">
-        Pick where each one belongs. <strong>Continuous</strong>: measured by length or volume, like fabric, thread or ink.
-        <strong>Discrete</strong>: single pieces you can count, like PVC cards. Until you pick, sales deduct it like a discrete material.
+        Say how each one is used. <strong>Measured</strong>: you use part of it at a time, like fabric, thread or ink (goes to Continuous).
+        <strong>Counted</strong>: single pieces, like PVC cards or mug blanks (goes to Discrete). Until you choose, sales take it as counted.
     </p>
     <div>
         @foreach($unset as $u)
@@ -14,7 +14,7 @@
                     <span class="text-xs text-slate-500">{{ \App\Services\Inventory\StockAlertService::formatQty($u->stock_quantity) }} {{ $u->unit }}</span>
                 </p>
                 <div class="flex gap-2">
-                    @foreach(['continuous' => 'Continuous', 'discrete' => 'Discrete'] as $value => $text)
+                    @foreach(['continuous' => 'Measured', 'discrete' => 'Counted'] as $value => $text)
                         <form method="POST" action="{{ route('stock.type', $u) }}">
                             @csrf
                             <input type="hidden" name="inventory_type" value="{{ $value }}">

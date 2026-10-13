@@ -227,8 +227,9 @@
                     <template x-if="soldNow">
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="{{ $label }}">Sold for (₱)</label>
+                                <label class="{{ $label }}">How much did this whole item cost? (₱)</label>
                                 <input type="number" step="0.01" min="0.01" name="scrap_revenue" required class="{{ $input }}">
+                                <p class="text-xs text-slate-400 mt-1">The total the buyer paid for all of it, not per piece.</p>
                             </div>
                             <div>
                                 <label class="{{ $label }}">Paid by</label>
@@ -257,8 +258,9 @@
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="{{ $label }}">Sold for (₱)</label>
+                        <label class="{{ $label }}">How much did this whole item cost? (₱)</label>
                         <input type="number" step="0.01" min="0.01" name="scrap_revenue" required class="{{ $input }}">
+                        <p class="text-xs text-slate-400 mt-1">The total the buyer paid for all of it, not per piece.</p>
                     </div>
                     <div>
                         <label class="{{ $label }}">Paid by</label>

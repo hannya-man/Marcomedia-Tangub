@@ -10,5 +10,5 @@ class SaleReturn extends Model
     protected $casts = ['created_at' => 'datetime'];
 
     public function saleItem() { return $this->belongsTo(SaleItem::class); }
-    public function processedBy() { return $this->belongsTo(User::class, 'processed_by'); }
+    public function processedBy() { return $this->belongsTo(User::class, 'processed_by')->withTrashed(); }
 }

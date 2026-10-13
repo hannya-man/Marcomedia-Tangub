@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\POSController;
 use App\Http\Controllers\InventoryController;
+use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\UserController;
 
 // Breeze's logout (and a few other flows) redirect to '/' when finished.
@@ -23,11 +25,14 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'no-cache'])->group(function () {
 
-    // Profile — every logged-in role can manage their own account.
-    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    // No "delete my account": staff accounts are the owner's to manage (User Management). Deleting
-    // one with sales failed halfway, and the last owner account could delete itself.
+    // Two-step verification (an authenticator app's code after the password). Open even to an
+    // owner who hasn't set it up yet: every other page sends them here first (owner-2fa below).
+    Route::get('/two-factor', [TwoFactorController::class, 'show'])->name('two-factor.show');
+    Route::post('/two-factor', [TwoFactorController::class, 'begin'])->name('two-factor.begin');
+    Route::post('/two-factor/confirm', [TwoFactorController::class, 'confirm'])->name('two-factor.confirm');
+    Route::post('/two-factor/cancel', [TwoFactorController::class, 'cancel'])->name('two-factor.cancel');
+    Route::post('/two-factor/recovery-codes', [TwoFactorController::class, 'renewCodes'])->name('two-factor.recovery-codes');
+    Route::delete('/two-factor', [TwoFactorController::class, 'disable'])->name('two-factor.disable');
 
     // Keeps the login alive while a page sits open (Billing/POS stays open on the counter all day):
     // a sale rung up after two quiet hours otherwise failed with "Page Expired" and lost its cart.
@@ -40,22 +45,43 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
     Route::post('/chat', [\App\Http\Controllers\ChatController::class, 'store'])->name('chat.store');
     Route::post('/chat/{chatMessage}/react', [\App\Http\Controllers\ChatController::class, 'react'])->name('chat.react');
 
+    // Every page from here on: an owner without two-step verification is sent to set it up first.
+    Route::middleware('owner-2fa')->group(function () {
+        // Profile — every logged-in role can manage their own account.
+        Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+        Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+        // No "delete my account": staff accounts are the owner's to manage (User Management). Deleting
+        // one with sales failed halfway, and the last owner account could delete itself.
+
+        // Approvals: what a cashier asked for (a new or changed product, a void) and the owner's
+        // answer. Cashiers see their own requests here; owners decide (below).
+        Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
+        Route::post('/approvals/{approvalRequest}/cancel', [ApprovalController::class, 'cancel'])->name('approvals.cancel');
+    });
+
     // Dashboard — admin only.
-    Route::middleware('role:admin')->group(function () {
+    Route::middleware(['role:admin', 'owner-2fa'])->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::post('/users', [UserController::class, 'store'])->name('users.store');
         Route::patch('/users/{user}', [UserController::class, 'update'])->name('users.update');
+        // Deleting a cashier's account, and turning off someone's two-step verification (a lost
+        // phone): each confirmed with the owner's own authenticator code.
+        Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+        Route::delete('/users/{user}/two-factor', [UserController::class, 'resetTwoFactor'])->name('users.two-factor.reset');
+
+        Route::post('/approvals/{approvalRequest}/approve', [ApprovalController::class, 'approve'])->name('approvals.approve');
+        Route::post('/approvals/{approvalRequest}/reject', [ApprovalController::class, 'reject'])->name('approvals.reject');
 
         // Owner-only actions — returns and physical counts must never be
         // reachable by a cashier, so these stay out of the shared group below.
         Route::post('/returns', [\App\Http\Controllers\SaleReturnController::class, 'store'])->name('returns.store');
         Route::post('/physical-counts', [\App\Http\Controllers\PhysicalCountController::class, 'store'])->name('physical-counts.store');
 
-        // Editing a product (its details, sizes, prices and what each size is made of): owner only,
-        // so the price list is the owner's to set.
-        Route::get('/inventory/{product}/edit', [InventoryController::class, 'edit'])->name('inventory.edit');
-        Route::put('/inventory/{product}', [InventoryController::class, 'update'])->name('inventory.update');
+        // Deleting (archiving) a product, and bringing one back: owner only. Cashiers can't remove
+        // what's for sale.
+        Route::delete('/inventory/{product}', [InventoryController::class, 'destroy'])->name('inventory.destroy');
+        Route::post('/inventory/{product}/restore', [InventoryController::class, 'restore'])->name('inventory.restore');
 
         // Sales archive: owner only. An archived sale leaves the sales totals, so a cashier could
         // otherwise make a paid sale disappear from the day's takings.
@@ -69,19 +95,22 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
     });
 
     // Billing/POS + Stock — admin and cashier.
-    Route::middleware('role:admin,cashier')->group(function () {
+    Route::middleware(['role:admin,cashier', 'owner-2fa'])->group(function () {
         Route::get('/pos', [POSController::class, 'index'])->name('pos.index');
         Route::post('/pos', [POSController::class, 'store'])->name('pos.store');
         Route::get('/pos/receipt/{sale}', [POSController::class, 'receipt'])->name('pos.receipt');
 
         Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');
+        // Adding or editing a product (its details, sizes, prices and what each size is made of): an
+        // owner's save is applied; a cashier's goes to an owner first (Approvals), so the price list
+        // stays the owner's to set.
         Route::post('/inventory', [InventoryController::class, 'store'])->name('inventory.store');
+        Route::get('/inventory/{product}/edit', [InventoryController::class, 'edit'])->name('inventory.edit');
+        Route::put('/inventory/{product}', [InventoryController::class, 'update'])->name('inventory.update');
         Route::post('/inventory/variants/{variant}/adjust', [InventoryController::class, 'adjustStock'])->name('inventory.adjust');
         Route::post('/inventory/variants/{variant}/mark-damaged', [InventoryController::class, 'markDamaged'])->name('inventory.mark-damaged');
         Route::get('/inventory/low-stock', [InventoryController::class, 'lowStock'])->name('inventory.low-stock');
         Route::get('/inventory/archive', [InventoryController::class, 'archive'])->name('inventory.archive');
-        Route::delete('/inventory/{product}', [InventoryController::class, 'destroy'])->name('inventory.destroy');
-        Route::post('/inventory/{product}/restore', [InventoryController::class, 'restore'])->name('inventory.restore');
 
         // Batch receiving — location (store/warehouse) is required on every
         // receive, enforced in InventoryBatchController's validation.

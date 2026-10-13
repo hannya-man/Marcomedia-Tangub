@@ -12,5 +12,5 @@ class PhysicalCount extends Model
     protected $casts = ['counted_at' => 'datetime'];
 
     public function variant() { return $this->belongsTo(ProductVariant::class, 'product_variant_id'); }
-    public function countedBy() { return $this->belongsTo(User::class, 'counted_by'); }
+    public function countedBy() { return $this->belongsTo(User::class, 'counted_by')->withTrashed(); }
 }

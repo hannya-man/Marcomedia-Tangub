@@ -11,6 +11,7 @@ use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\SheetYield;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Feature\Concerns\UsesTwoFactor;
 use Tests\TestCase;
 
 /**
@@ -20,7 +21,7 @@ use Tests\TestCase;
  */
 class BackorderTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, UsesTwoFactor;
 
     private BatchInventoryService $inventory;
     private User $cashier;
@@ -147,7 +148,8 @@ class BackorderTest extends TestCase
         $this->assertFalse($taken->items->first()->isOnOrder());
         $this->assertTrue($waiting->items->first()->isOnOrder());
 
-        $this->post(route('sales.void', $cancelled))->assertSessionHas('success');
+        // Voided by an owner (a cashier only asks: Approvals).
+        $this->actingAs($this->owner())->post(route('sales.void', $cancelled))->assertSessionHas('success');
         // The blank the voided sale gives back goes to the order waiting.
         $this->post(route('sales.void', $taken))
             ->assertSessionHas('success', fn ($message) => str_contains($message, $waiting->invoice_number));
@@ -218,8 +220,8 @@ class BackorderTest extends TestCase
         $this->assertFalse($sale->items->first()->fresh()->isOnOrder());
         $this->assertSame(2, $size->fresh()->stock_quantity);
 
-        // Voided, the sale gives back the two it took.
-        $this->post(route('sales.void', $sale));
+        // Voided (by an owner), the sale gives back the two it took.
+        $this->actingAs($this->owner())->post(route('sales.void', $sale));
         $this->assertSame(4, $size->fresh()->stock_quantity);
     }
 
@@ -280,6 +282,14 @@ class BackorderTest extends TestCase
     // ------------------------------------------------------------------
 
     // A made-to-order mug that takes one blank each, with $blanks in the store: [item, type, blank].
+    // An owner, who voids sales (with two-step verification, which owners must have).
+    private function owner(): User
+    {
+        return $this->withTwoFactor(User::create([
+            'name' => 'Owner', 'email' => uniqid('admin') . '@example.com', 'password' => 'not-used', 'role' => 'admin',
+        ]));
+    }
+
     private function mug(float $blanks = 0): array
     {
         $blank = Material::create([

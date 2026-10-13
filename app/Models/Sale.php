@@ -15,7 +15,7 @@ class Sale extends Model
     ];
 
     public function customer() { return $this->belongsTo(Customer::class); }
-    public function user() { return $this->belongsTo(User::class); }
+    public function user() { return $this->belongsTo(User::class)->withTrashed(); }
     public function items() { return $this->hasMany(SaleItem::class); }
 
     // Lines sold while out of stock that are still waiting for it (BackorderService).

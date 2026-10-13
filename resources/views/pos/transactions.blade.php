@@ -9,7 +9,7 @@
     $iconBtn = 'inline-flex items-center justify-center w-8 h-8 rounded-lg';
     $isOwner = auth()->user()->role === 'admin';
 @endphp
-<div x-data="{ editingSale: null, confirmingArchiveSale: null }">
+<div x-data="{ editingSale: null, confirmingArchiveSale: null, askingVoid: null }">
 
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
@@ -108,6 +108,10 @@
                     <td class="px-2 capitalize">{{ $sale->payment_method === 'gcash' ? 'GCash' : str_replace('_',' ',$sale->payment_method) }}</td>
                     <td class="px-2">
                         <span class="px-2 py-1 rounded-full text-xs font-medium {{ $badge }}">{{ ucfirst($sale->status) }}</span>
+                        @if(isset($voidRequested[$sale->id]))
+                            <a href="{{ route('approvals.index') }}" class="block mt-1.5 text-xs font-medium text-red-600 whitespace-nowrap hover:underline"
+                               title="A cashier asked to void it: waiting for an owner's approval">Void requested</a>
+                        @endif
                         @if($onOrder)
                             <span class="block mt-1.5 text-xs font-medium text-amber-600 whitespace-nowrap" title="Sold while out of stock. Restocking gives it its stock.">{{ $onOrder }} on order</span>
                         @elseif($stockIn)
@@ -140,13 +144,28 @@
                             </form>
                             @endif
                             @if(in_array($sale->status, ['pending', 'processing']))
-                            <form method="POST" action="{{ route('sales.void', $sale) }}" onsubmit="return confirm('Void this sale and restore stock?')">
-                                @csrf
-                                <button title="Void" aria-label="Void"
+                                @if($isOwner)
+                                <form method="POST" action="{{ route('sales.void', $sale) }}" onsubmit="return confirm('Void this sale and restore stock?')">
+                                    @csrf
+                                    <button title="Void" aria-label="Void"
+                                        class="{{ $iconBtn }} bg-red-50 text-red-600 hover:bg-red-100">
+                                        <i data-lucide="ban" class="w-4 h-4"></i>
+                                    </button>
+                                </form>
+                                @elseif(isset($voidRequested[$sale->id]))
+                                {{-- Already asked: waiting for an owner --}}
+                                <span title="Waiting for the owner to approve voiding it" aria-label="Void requested"
+                                    class="{{ $iconBtn }} bg-slate-100 text-slate-400 cursor-default">
+                                    <i data-lucide="hourglass" class="w-4 h-4"></i>
+                                </span>
+                                @else
+                                {{-- A cashier asks an owner to void it, saying why --}}
+                                <button type="button" title="Ask the owner to void it" aria-label="Ask to void"
+                                    @click="askingVoid = { invoice: {{ json_encode($sale->invoice_number) }}, url: {{ json_encode(route('sales.void', $sale)) }} }; $nextTick(() => $refs.voidReason.focus())"
                                     class="{{ $iconBtn }} bg-red-50 text-red-600 hover:bg-red-100">
                                     <i data-lucide="ban" class="w-4 h-4"></i>
                                 </button>
-                            </form>
+                                @endif
                             @endif
                             <button type="button" title="Edit" aria-label="Edit"
                                 onclick='openSaleEditor(@json($saleEditPayload))'
@@ -197,7 +216,10 @@
                         <option value="pending">Pending (down payment)</option>
                         <option value="processing">Processing (paid, in progress)</option>
                         <option value="completed">Completed</option>
+                        {{-- A cashier asks an owner with the Void button instead --}}
+                        @if($isOwner)
                         <option value="voided">Voided</option>
+                        @endif
                     </select>
                 </div>
                 <div x-show="editingSale.balance > 0">
@@ -214,6 +236,26 @@
             </form>
             </template>
         </div>
+    </div>
+
+    {{-- A cashier asks an owner to void a sale: nothing is voided until it's approved --}}
+    <div x-show="askingVoid !== null" style="display:none;" x-transition.opacity class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" @click.self="askingVoid = null" @keydown.escape.window="askingVoid = null">
+        <form x-show="askingVoid !== null" method="POST" :action="askingVoid ? askingVoid.url : ''"
+              class="bg-white rounded-lg shadow-lg border border-slate-200 w-full max-w-md p-6">
+            @csrf
+            <p class="text-lg font-semibold text-ink mb-2">Ask the owner to void <span x-text="askingVoid?.invoice"></span>?</p>
+            <p class="text-sm text-slate-500 mb-4">
+                Voiding needs an owner's approval. The sale stays as it is until they approve it; then its stock comes back.
+                You'll see the answer in My Requests.
+            </p>
+            <label for="void-reason" class="block text-xs font-medium text-slate-600 mb-1.5">Why should it be voided?</label>
+            <textarea id="void-reason" x-ref="voidReason" name="reason" rows="2" required maxlength="500" placeholder="e.g. the customer cancelled the order"
+                      class="w-full text-sm rounded-lg border border-slate-300 bg-white px-3 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"></textarea>
+            <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-5">
+                <button type="button" @click="askingVoid = null" class="border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-md px-4 py-2">Cancel</button>
+                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md px-4 py-2">Ask the owner</button>
+            </div>
+        </form>
     </div>
 
     {{-- SHADCN-STYLE ALERT DIALOG — Archive confirmation --}}
