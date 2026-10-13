@@ -7,6 +7,8 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'voku\\' => array($vendorDir . '/voku/portable-ascii/src/voku'),
+    'chillerlan\\Settings\\' => array($vendorDir . '/chillerlan/php-settings-container/src'),
+    'chillerlan\\QRCode\\' => array($vendorDir . '/chillerlan/php-qrcode/src'),
     'Whoops\\' => array($vendorDir . '/filp/whoops/src/Whoops'),
     'TijsVerkoyen\\CssToInlineStyles\\' => array($vendorDir . '/tijsverkoyen/css-to-inline-styles/src'),
     'Tests\\' => array($baseDir . '/tests'),
@@ -52,8 +54,10 @@ return array(
     'Psr\\EventDispatcher\\' => array($vendorDir . '/psr/event-dispatcher/src'),
     'Psr\\Container\\' => array($vendorDir . '/psr/container/src'),
     'Psr\\Clock\\' => array($vendorDir . '/psr/clock/src'),
+    'PragmaRX\\Google2FA\\' => array($vendorDir . '/pragmarx/google2fa/src'),
     'PhpParser\\' => array($vendorDir . '/nikic/php-parser/lib/PhpParser'),
     'PhpOption\\' => array($vendorDir . '/phpoption/phpoption/src/PhpOption'),
+    'ParagonIE\\ConstantTime\\' => array($vendorDir . '/paragonie/constant_time_encoding/src'),
     'NunoMaduro\\Collision\\' => array($vendorDir . '/nunomaduro/collision/src'),
     'Nette\\' => array($vendorDir . '/nette/utils/src'),
     'Monolog\\' => array($vendorDir . '/monolog/monolog/src/Monolog'),
