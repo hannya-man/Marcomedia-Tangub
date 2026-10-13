@@ -4,6 +4,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Tests\Feature\Concerns\UsesTwoFactor;
 use Tests\TestCase;
 
 /**
@@ -12,7 +13,7 @@ use Tests\TestCase;
  */
 class PageTransitionsTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, UsesTwoFactor;
 
     private const ARRIVING = 'auth-splash is-arriving';
 
@@ -53,6 +54,8 @@ class PageTransitionsTest extends TestCase
 
     private function user(string $role): User
     {
-        return User::create(['name' => ucfirst($role), 'email' => uniqid($role) . '@example.com', 'password' => Hash::make('secret-password'), 'role' => $role]);
+        $user = User::create(['name' => ucfirst($role), 'email' => uniqid($role) . '@example.com', 'password' => Hash::make('secret-password'), 'role' => $role]);
+
+        return $role === 'admin' ? $this->withTwoFactor($user) : $user;
     }
 }

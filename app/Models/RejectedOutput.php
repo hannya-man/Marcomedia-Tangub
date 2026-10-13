@@ -41,7 +41,7 @@ class RejectedOutput extends Model
     public function variant() { return $this->belongsTo(ProductVariant::class, 'product_variant_id'); }
     public function sale() { return $this->belongsTo(Sale::class); }   // the customer's job it was reprinted for
     public function scrapSale() { return $this->belongsTo(Sale::class, 'scrap_sale_id'); }
-    public function user() { return $this->belongsTo(User::class); }
+    public function user() { return $this->belongsTo(User::class)->withTrashed(); }
     public function losses() { return $this->hasMany(BatchAdjustment::class); }
 
     public function getCauseLabelAttribute(): string

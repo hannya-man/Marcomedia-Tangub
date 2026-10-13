@@ -19,7 +19,7 @@ class StockAlert extends Model
     ];
 
     public function material() { return $this->belongsTo(Material::class); }
-    public function acknowledger() { return $this->belongsTo(User::class, 'acknowledged_by'); }
+    public function acknowledger() { return $this->belongsTo(User::class, 'acknowledged_by')->withTrashed(); }
 
     public function scopeActive($query) { return $query->where('status', 'active'); }
 

@@ -32,5 +32,5 @@ class BatchAdjustment extends Model
     public function saleItem() { return $this->belongsTo(SaleItem::class); }
     public function offcut() { return $this->belongsTo(MaterialOffcut::class, 'material_offcut_id'); }
     public function rejectedOutput() { return $this->belongsTo(RejectedOutput::class); }
-    public function user() { return $this->belongsTo(User::class); }
+    public function user() { return $this->belongsTo(User::class)->withTrashed(); }
 }

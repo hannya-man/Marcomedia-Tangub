@@ -185,9 +185,7 @@ class StockController extends Controller
         return $this->attempt(function () use ($material, $data) {
             $sale = $this->invoice($data['invoice'] ?? null);
             $rows = $this->inventory->pullForUse($material, (float) $data['quantity'], $data['note'] ?? null, Auth::id(), $sale?->id);
-            $batches = $rows->map(fn ($row) => $row->batch->batch_number)->unique()->implode(' and ');
-
-            return 'Pulled ' . $this->fmt($data['quantity']) . " {$material->unit} of {$material->name} from {$batches}. "
+            return 'Recorded: ' . $this->fmt($data['quantity']) . " {$material->unit} of {$material->name} used. "
                 . $this->fmt($material->fresh()->stock_quantity) . " {$material->unit} left in stock.";
         });
     }
@@ -322,7 +320,7 @@ class StockController extends Controller
                 ? $batches->first()->batch_number . ' to ' . $batches->last()->batch_number
                 : $batches->first()->batch_number;
 
-            return "Restocked {$batches->count()} " . $material->sheetNoun() . ($batches->count() === 1 ? '' : 's') . " of {$material->name}: {$numbers}."
+            return "Added {$batches->count()} " . $material->sheetNoun() . ($batches->count() === 1 ? '' : 's') . " of {$material->name} ({$numbers})."
                 . $this->backorders->fillAfterRestock(Auth::id());
         });
     }
@@ -347,7 +345,7 @@ class StockController extends Controller
         return $this->attempt(function () use ($next, $leftover) {
             $this->inventory->openBatch($next, Auth::id(), $leftover);
 
-            return "{$next->batch_number} is now the active batch.";
+            return "Started a new pack: {$next->batch_number} is now in use.";
         });
     }
 
@@ -366,7 +364,7 @@ class StockController extends Controller
         return $this->attempt(function () use ($pack) {
             $this->inventory->transferToStore($pack);
 
-            return "{$pack->batch_number} moved to the store." . $this->backorders->fillAfterRestock(Auth::id());
+            return "Pack {$pack->batch_number} moved from the warehouse to the store." . $this->backorders->fillAfterRestock(Auth::id());
         });
     }
 
@@ -390,7 +388,7 @@ class StockController extends Controller
         return $this->attempt(function () use ($active, $data, $material) {
             $this->inventory->recordLoss($active, 'damaged', (float) $data['quantity'], $data['reason'], Auth::id());
 
-            return 'Recorded ' . $this->fmt($data['quantity']) . " {$material->unit} damaged on {$active->batch_number}.";
+            return 'Recorded ' . $this->fmt($data['quantity']) . " {$material->unit} of {$material->name} damaged. It's off the stock.";
         });
     }
 
@@ -418,7 +416,7 @@ class StockController extends Controller
                 return 'The count matches the system. Nothing changed.';
             }
 
-            return "Count saved on {$active->batch_number}: " . ($adjustment->quantity > 0 ? '+' : '') . $this->fmt($adjustment->quantity) . " {$material->unit}."
+            return "Count fixed for {$material->name}: " . ($adjustment->quantity > 0 ? '+' : '') . $this->fmt($adjustment->quantity) . " {$material->unit}."
                 . ($adjustment->quantity > 0 ? $this->backorders->fillAfterRestock(Auth::id()) : '');
         });
     }
@@ -639,7 +637,7 @@ class StockController extends Controller
                 'batch' => $b->batch_number,
                 'what' => isset($pieceOf[$b->material_id])
                     ? (($sheets[$pieceOf[$b->material_id]->cut_from_id] ?? null)?->isRoll() ? 'Measured off a roll' : 'Cut from a board')
-                    : ($b->purchase_order_item_id ? 'Received on PO' : 'Restocked'),
+                    : ($b->purchase_order_item_id ? 'Received on PO' : 'Stock added'),
                 'qty' => (float) $b->opening_quantity,
                 'detail' => $b->location === 'warehouse' ? 'Warehouse' : null,
                 'by' => $b->receiver->name ?? null,
@@ -656,14 +654,14 @@ class StockController extends Controller
                 'at' => $c->created_at,
                 'batch' => $c->batch_number,
                 'what' => $c->sale_item_id ? 'Sale' : ($c->inventory_movement_id ? 'Production'
-                    : (isset($sheets[$c->material_id]) ? 'Cut into pieces' : 'Pulled for use')),
+                    : (isset($sheets[$c->material_id]) ? 'Cut into pieces' : 'Used')),
                 'qty' => -1 * (float) $c->quantity_consumed,
                 'detail' => trim(implode(', ', array_filter([$c->invoice_number, $c->note]))) ?: null,
                 'by' => $c->user_name,
             ]);
 
         $labels = [
-            'damaged' => 'Damaged', 'wasted' => 'Rejected output', 'count_correction' => 'Count',
+            'damaged' => 'Damaged', 'wasted' => 'Rejected output', 'count_correction' => 'Count fixed',
             'void_return' => 'Sale voided', 'to_offcut' => 'Kept as offcut', 'write_off' => 'Written off',
         ];
         $adjusted = BatchAdjustment::join('inventory_batches as b', 'b.id', '=', 'batch_adjustments.inventory_batch_id')

@@ -24,10 +24,13 @@
                 <td class="text-slate-500">{{ $product->category->name ?? 'Uncategorized' }}</td>
                 <td class="text-slate-500">{{ $product->archived_at?->format('M j, Y') }}</td>
                 <td>
+                    {{-- Only an owner deletes a product, and brings one back --}}
+                    @if(auth()->user()->role === 'admin')
                     <form method="POST" action="{{ route('inventory.restore', $product) }}">
                         @csrf
                         <button class="text-brand-600 text-xs">Restore</button>
                     </form>
+                    @endif
                 </td>
             </tr>
             @empty

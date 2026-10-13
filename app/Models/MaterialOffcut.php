@@ -21,7 +21,7 @@ class MaterialOffcut extends Model
     public function material() { return $this->belongsTo(Material::class); }
     public function sourceBatch() { return $this->belongsTo(InventoryBatch::class, 'source_batch_id'); }
     public function saleItem() { return $this->belongsTo(SaleItem::class, 'used_for_sale_item_id'); }
-    public function creator() { return $this->belongsTo(User::class, 'created_by'); }
+    public function creator() { return $this->belongsTo(User::class, 'created_by')->withTrashed(); }
 
     public function scopeAvailable($query) { return $query->where('status', 'available'); }
 }

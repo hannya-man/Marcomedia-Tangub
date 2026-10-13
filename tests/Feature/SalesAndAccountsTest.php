@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Inventory\BatchInventoryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Feature\Concerns\UsesTwoFactor;
 use Tests\TestCase;
 
 /**
@@ -18,7 +19,7 @@ use Tests\TestCase;
  */
 class SalesAndAccountsTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, UsesTwoFactor;
 
     private User $owner;
     private User $cashier;
@@ -70,7 +71,11 @@ class SalesAndAccountsTest extends TestCase
         $sale = $this->sell($mug, $type);
         $this->assertQty(0, $blank->fresh()->stock_quantity);
 
-        $this->patch(route('sales.update', $sale), ['status' => 'voided'])->assertSessionHas('success');
+        // A cashier can't void through Edit: they ask an owner with the Void button.
+        $this->patch(route('sales.update', $sale), ['status' => 'voided'])->assertSessionHas('error');
+        $this->assertSame('processing', $sale->fresh()->status);
+
+        $this->actingAs($this->owner)->patch(route('sales.update', $sale), ['status' => 'voided'])->assertSessionHas('success');
         $this->assertSame('voided', $sale->fresh()->status);
         $this->assertQty(1, $blank->fresh()->stock_quantity);
 
@@ -97,8 +102,8 @@ class SalesAndAccountsTest extends TestCase
     {
         [$mug, $type] = $this->mug(2);
         $voided = $this->sell($mug, $type);
-        $this->post(route('sales.void', $voided));
-        $paid = $this->sell($mug, $type);
+        $this->actingAs($this->owner)->post(route('sales.void', $voided));
+        $paid = $this->sell($mug, $type);   // the cashier again
 
         // A cashier can't make a paid sale leave the day's totals.
         $this->post(route('sales.archiveOne', $paid))->assertRedirect(route('pos.index'));
@@ -166,7 +171,9 @@ class SalesAndAccountsTest extends TestCase
 
     private function user(string $role): User
     {
-        return User::create(['name' => ucfirst($role) . ' ' . uniqid(), 'email' => uniqid($role) . '@example.com', 'password' => bcrypt('secret-password'), 'role' => $role]);
+        $user = User::create(['name' => ucfirst($role) . ' ' . uniqid(), 'email' => uniqid($role) . '@example.com', 'password' => bcrypt('secret-password'), 'role' => $role]);
+
+        return $role === 'admin' ? $this->withTwoFactor($user) : $user;
     }
 
     private function profile(User $user, string $role): array

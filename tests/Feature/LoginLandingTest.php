@@ -4,6 +4,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Tests\Feature\Concerns\UsesTwoFactor;
 use Tests\TestCase;
 
 /**
@@ -12,7 +13,7 @@ use Tests\TestCase;
  */
 class LoginLandingTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, UsesTwoFactor;
 
     private const ACCESS_ERROR = "You don't have access to that page.";
 
@@ -24,10 +25,23 @@ class LoginLandingTest extends TestCase
         $this->get(route('pos.index'))->assertOk()->assertSessionMissing('error')->assertDontSee(self::ACCESS_ERROR, false);
     }
 
-    public function test_the_owner_lands_on_the_dashboard(): void
+    public function test_the_owner_lands_on_the_dashboard_after_the_code_from_the_app(): void
+    {
+        $owner = $this->withTwoFactor($this->user('admin'));
+        $this->logIn($owner)->assertRedirect(route('two-factor.login'));
+        $this->assertGuest();
+
+        $this->post(route('two-factor.login'), ['code' => $this->codeFor($owner)])->assertRedirect('/');
+        $this->assertAuthenticatedAs($owner);
+        $this->get('/')->assertRedirect(route('dashboard'));
+    }
+
+    public function test_an_owner_without_two_step_verification_is_sent_to_set_it_up(): void
     {
         $this->logIn($this->user('admin'))->assertRedirect('/');
         $this->get('/')->assertRedirect(route('dashboard'));
+        $this->get(route('dashboard'))->assertRedirect(route('two-factor.show'));
+        $this->get(route('two-factor.show'))->assertOk()->assertSee('Owner accounts must use two-step verification.');
     }
 
     public function test_a_page_asked_for_before_logging_in_is_kept_only_if_the_role_can_open_it(): void
@@ -39,8 +53,10 @@ class LoginLandingTest extends TestCase
 
     public function test_the_owner_goes_back_to_the_page_asked_for(): void
     {
+        $owner = $this->withTwoFactor($this->user('admin'));
         $this->get(route('stock.discrete'))->assertRedirect(route('login'));
-        $this->logIn($this->user('admin'))->assertRedirect(route('stock.discrete'));
+        $this->logIn($owner)->assertRedirect(route('two-factor.login'));
+        $this->post(route('two-factor.login'), ['code' => $this->codeFor($owner)])->assertRedirect(route('stock.discrete'));
     }
 
     public function test_a_chat_poll_after_logging_out_isnt_where_the_next_login_lands(): void

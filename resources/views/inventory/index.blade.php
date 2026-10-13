@@ -21,6 +21,7 @@
 @endif
 
 @section('content')
+@php $isOwner = auth()->user()->role === 'admin'; @endphp
 <div x-data="{
         addingProduct: @js($addOld), hasVariants: @js($addOld && old('has_variants')),
         trackInventory: @js($addOld ? (bool) old('track_inventory') : true),
@@ -69,6 +70,20 @@
         </div>
     </div>
 
+    @if($waitingCount)
+        <a href="{{ route('approvals.index') }}" class="mb-4 flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
+            <i data-lucide="inbox" class="w-4 h-4 flex-shrink-0"></i>
+            <span class="flex-1">
+                @if($isOwner)
+                    {{ $waitingCount }} product {{ $waitingCount === 1 ? 'change' : 'changes' }} from cashiers {{ $waitingCount === 1 ? 'is' : 'are' }} waiting for your approval.
+                @else
+                    {{ $waitingCount }} of your product {{ $waitingCount === 1 ? 'request is' : 'requests are' }} waiting for the owner's approval.
+                @endif
+            </span>
+            <span class="text-xs font-medium">{{ $isOwner ? 'Review' : 'See' }}</span>
+        </a>
+    @endif
+
     {{-- Pages and filters in place, with a fade (smoothList in layouts/app): no full reload --}}
     <div id="product-list" data-smooth-list class="scroll-mt-6">
     <div class="space-y-4">
@@ -100,13 +115,14 @@
                     @endif
                 </div>
                 <div class="ml-3 flex items-center gap-2">
-                    {{-- The owner sets the product's details, its sizes and their prices --}}
-                    @if(auth()->user()->role === 'admin')
-                        <a href="{{ route('inventory.edit', $product) }}" title="Edit product and prices" aria-label="Edit {{ $product->name }}"
-                           class="w-8 h-8 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-brand-700 flex items-center justify-center">
-                            <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
-                        </a>
-                    @endif
+                    {{-- The owner sets the product's details, its sizes and their prices; a cashier's
+                         changes go to an owner for approval --}}
+                    <a href="{{ route('inventory.edit', $product) }}" title="{{ $isOwner ? 'Edit product and prices' : 'Change product (an owner approves it)' }}" aria-label="Edit {{ $product->name }}"
+                       class="w-8 h-8 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-brand-700 flex items-center justify-center">
+                        <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                    </a>
+                    {{-- Only an owner deletes (archives) a product --}}
+                    @if($isOwner)
                     <form method="POST" action="{{ route('inventory.destroy', $product) }}" id="delete-product-form-{{ $product->id }}">
                         @csrf @method('DELETE')
                         <button type="button" title="Delete product" aria-label="Delete {{ $product->name }}"
@@ -115,6 +131,7 @@
                             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                         </button>
                     </form>
+                    @endif
                 </div>
             </div>
 
@@ -236,9 +253,16 @@
                 @csrf
                 <input type="hidden" name="_form" value="add-product">
 
+                @unless($isOwner)
+                    <div class="rounded-lg bg-brand-50 border border-brand-200 text-brand-800 px-4 py-3 text-sm flex gap-2">
+                        <i data-lucide="info" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
+                        <span>An owner approves new products before they're added. You'll see the answer in My Requests.</span>
+                    </div>
+                @endunless
+
                 @if($addOld && $errors->any())
                     <div class="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
-                        <p class="font-medium">The product wasn't saved:</p>
+                        <p class="font-medium">The product wasn't {{ $isOwner ? 'saved' : 'sent' }}:</p>
                         <ul class="list-disc ml-5 mt-1 space-y-0.5">
                             @foreach(collect($errors->all())->unique() as $message)
                                 <li>{{ $message }}</li>
@@ -416,7 +440,7 @@
                 </div>
 
                 <div class="flex gap-3 pt-2">
-                    <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg px-6 py-2.5">Save Product</button>
+                    <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg px-6 py-2.5">{{ $isOwner ? 'Save Product' : 'Send for approval' }}</button>
                     <button type="button" @click="closeAddProduct()" class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg px-6 py-2.5">Cancel</button>
                 </div>
             </form>

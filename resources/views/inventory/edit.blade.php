@@ -15,9 +15,23 @@
     <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Inventory
 </a>
 
+@php $isOwner = auth()->user()->role === 'admin'; @endphp
+@unless($isOwner)
+    {{-- A cashier's changes go to an owner for approval (InventoryController::update) --}}
+    <div class="mb-4 rounded-lg bg-brand-50 border border-brand-200 text-brand-800 px-4 py-3 text-sm flex gap-2">
+        <i data-lucide="info" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
+        <div>
+            <p>Your changes go to the owner for approval. Nothing changes until it's approved: you'll see the answer in My Requests.</p>
+            @if($waiting)
+                <p class="mt-1 font-medium">You already sent changes to this product {{ $waiting->created_at->diffForHumans() }}, still waiting. Sending again replaces them.</p>
+            @endif
+        </div>
+    </div>
+@endunless
+
 @if($errors->any())
     <div class="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
-        <p class="font-medium">Nothing was saved yet:</p>
+        <p class="font-medium">Nothing was {{ $isOwner ? 'saved' : 'sent' }} yet:</p>
         <ul class="list-disc pl-5 mt-1 space-y-0.5">
             @foreach(collect($errors->all())->unique() as $message)
                 <li>{{ $message }}</li>
@@ -197,7 +211,7 @@
     {{-- Stays in reach on a long list of sizes --}}
     <div class="sticky bottom-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center justify-end gap-2">
         <a href="{{ $back }}" class="text-sm font-medium text-slate-700 border border-slate-300 hover:bg-slate-50 rounded-lg px-4 py-2">Cancel</a>
-        <button type="submit" class="text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-5 py-2">Save changes</button>
+        <button type="submit" class="text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-5 py-2">{{ $isOwner ? 'Save changes' : 'Send for approval' }}</button>
     </div>
 </form>
 

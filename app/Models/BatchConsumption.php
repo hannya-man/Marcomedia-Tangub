@@ -28,7 +28,7 @@ class BatchConsumption extends Model
     public function batch() { return $this->belongsTo(InventoryBatch::class, 'inventory_batch_id'); }
     public function sale() { return $this->belongsTo(Sale::class); }
     public function saleItem() { return $this->belongsTo(SaleItem::class); }
-    public function user() { return $this->belongsTo(User::class); }
+    public function user() { return $this->belongsTo(User::class)->withTrashed(); }
 
     // Set when the material was used to produce finished stock (mugs, tumblers).
     public function movement() { return $this->belongsTo(InventoryMovement::class, 'inventory_movement_id'); }

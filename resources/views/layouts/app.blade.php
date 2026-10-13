@@ -1,6 +1,11 @@
 @php
     // Just logged in (AuthenticatedSessionController): start under the brand screen. Read once.
     $authArriving = session()->pull('auth_splash') === 'in';
+    // Approvals: for an owner, cashiers' requests waiting; for a cashier, answers not seen yet.
+    $isOwnerNav = auth()->user()->role === 'admin';
+    $approvalCount = $isOwnerNav
+        ? \App\Models\ApprovalRequest::pending()->count()
+        : \App\Models\ApprovalRequest::where('requested_by', auth()->id())->where('status', '!=', 'pending')->whereNull('requester_seen_at')->count();
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -177,6 +182,13 @@
                 <i data-lucide="banknote" class="w-4 h-4"></i><span>Sales</span>
             </a>
             @endif
+            @if(auth()->user()->role === 'cashier')
+            {{-- What they asked an owner to approve; the number is answers they haven't seen --}}
+            <a href="{{ route('approvals.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('approvals.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="inbox" class="w-4 h-4"></i><span class="flex-1">My Requests</span>
+                @if($approvalCount)<span class="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-400 text-ink text-[11px] font-semibold flex items-center justify-center" title="New answers">{{ $approvalCount }}</span>@endif
+            </a>
+            @endif
 
             @if(in_array(auth()->user()->role, ['admin', 'cashier']))
             <p class="px-3 pb-1 pt-4 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Inventory</p>
@@ -198,6 +210,11 @@
 
             @if(auth()->user()->role === 'admin')
             <p class="px-3 pb-1 pt-4 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Admin</p>
+            {{-- Cashiers' requests (a new or changed product, a void); the number is how many wait --}}
+            <a href="{{ route('approvals.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('approvals.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="inbox" class="w-4 h-4"></i><span class="flex-1">Approvals</span>
+                @if($approvalCount)<span class="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-semibold flex items-center justify-center" title="Waiting for you">{{ $approvalCount }}</span>@endif
+            </a>
             <a href="{{ route('users.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('users.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
                 <i data-lucide="users" class="w-4 h-4"></i><span>User Management</span>
             </a>
@@ -247,6 +264,15 @@
                 <h1 class="text-base sm:text-lg font-semibold text-ink truncate">@yield('title', 'Dashboard')</h1>
             </div>
             <div class="flex items-center gap-4">
+                {{-- Approvals waiting (owner) or new answers (cashier): also reachable on a phone,
+                     where the sidebar is hidden --}}
+                @if($approvalCount && ! request()->routeIs('approvals.*'))
+                    <a href="{{ route('approvals.index') }}" title="{{ $isOwnerNav ? 'Waiting for your approval' : 'New answers to your requests' }}"
+                       class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium {{ $isOwnerNav ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-amber-50 text-amber-800 hover:bg-amber-100' }}">
+                        <i data-lucide="inbox" class="w-3.5 h-3.5"></i>
+                        {{ $approvalCount }}<span class="hidden sm:inline">{{ $isOwnerNav ? ' to approve' : ($approvalCount === 1 ? ' new answer' : ' new answers') }}</span>
+                    </a>
+                @endif
                 {{-- Profile / Logout. The sidebar's user menu has the same two actions. --}}
                 <div class="relative" x-data="{ menuOpen: false }">
                     <button @click="menuOpen = !menuOpen" @click.outside="menuOpen = false"
