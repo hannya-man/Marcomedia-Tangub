@@ -7,8 +7,9 @@ use Illuminate\Console\GeneratorCommand;
 use Illuminate\Support\Str;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+
+use function Laravel\Prompts\suggest;
 
 #[AsCommand(name: 'make:listener')]
 class ListenerMakeCommand extends GeneratorCommand
@@ -16,22 +17,15 @@ class ListenerMakeCommand extends GeneratorCommand
     use CreatesMatchingTest;
 
     /**
-     * The console command name.
+     * The name and signature of the console command.
      *
      * @var string
      */
-    protected $name = 'make:listener';
-
-    /**
-     * The name of the console command.
-     *
-     * This name is used to identify the command during lazy loading.
-     *
-     * @var string|null
-     *
-     * @deprecated
-     */
-    protected static $defaultName = 'make:listener';
+    protected $signature = 'make:listener
+                    {name : The name of the listener}
+                    {--e|event= : The event class being listened for}
+                    {--f|force : Create the class even if the listener already exists}
+                    {--queued : Indicates the event listener should be queued}';
 
     /**
      * The console command description.
@@ -55,7 +49,7 @@ class ListenerMakeCommand extends GeneratorCommand
      */
     protected function buildClass($name)
     {
-        $event = $this->option('event');
+        $event = $this->option('event') ?? '';
 
         if (! Str::startsWith($event, [
             $this->laravel->getNamespace(),
@@ -75,6 +69,19 @@ class ListenerMakeCommand extends GeneratorCommand
     }
 
     /**
+     * Resolve the fully-qualified path to the stub.
+     *
+     * @param  string  $stub
+     * @return string
+     */
+    protected function resolveStubPath($stub)
+    {
+        return file_exists($customPath = $this->laravel->basePath(trim($stub, '/')))
+            ? $customPath
+            : __DIR__.$stub;
+    }
+
+    /**
      * Get the stub file for the generator.
      *
      * @return string
@@ -83,13 +90,13 @@ class ListenerMakeCommand extends GeneratorCommand
     {
         if ($this->option('queued')) {
             return $this->option('event')
-                        ? __DIR__.'/stubs/listener-queued.stub'
-                        : __DIR__.'/stubs/listener-queued-duck.stub';
+                ? $this->resolveStubPath('/stubs/listener.typed.queued.stub')
+                : $this->resolveStubPath('/stubs/listener.queued.stub');
         }
 
         return $this->option('event')
-                    ? __DIR__.'/stubs/listener.stub'
-                    : __DIR__.'/stubs/listener-duck.stub';
+            ? $this->resolveStubPath('/stubs/listener.typed.stub')
+            : $this->resolveStubPath('/stubs/listener.stub');
     }
 
     /**
@@ -100,7 +107,7 @@ class ListenerMakeCommand extends GeneratorCommand
      */
     protected function alreadyExists($rawName)
     {
-        return class_exists($rawName);
+        return class_exists($this->qualifyClass($rawName));
     }
 
     /**
@@ -112,20 +119,6 @@ class ListenerMakeCommand extends GeneratorCommand
     protected function getDefaultNamespace($rootNamespace)
     {
         return $rootNamespace.'\Listeners';
-    }
-
-    /**
-     * Get the console command options.
-     *
-     * @return array
-     */
-    protected function getOptions()
-    {
-        return [
-            ['event', 'e', InputOption::VALUE_OPTIONAL, 'The event class being listened for'],
-            ['force', 'f', InputOption::VALUE_NONE, 'Create the class even if the listener already exists'],
-            ['queued', null, InputOption::VALUE_NONE, 'Indicates the event listener should be queued'],
-        ];
     }
 
     /**
@@ -141,13 +134,12 @@ class ListenerMakeCommand extends GeneratorCommand
             return;
         }
 
-        $event = $this->components->askWithCompletion(
-            'What event should be listened for?',
+        $event = suggest(
+            'What event should be listened for? (Optional)',
             $this->possibleEvents(),
-            'none'
         );
 
-        if ($event && $event !== 'none') {
+        if ($event) {
             $input->setOption('event', $event);
         }
     }

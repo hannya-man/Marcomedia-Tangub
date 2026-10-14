@@ -2,6 +2,10 @@
 
 namespace Illuminate\Database\Eloquent\Concerns;
 
+use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Attributes\Initialize;
+use Illuminate\Database\Eloquent\Attributes\Visible;
+
 trait HidesAttributes
 {
     /**
@@ -17,6 +21,18 @@ trait HidesAttributes
      * @var array<string>
      */
     protected $visible = [];
+
+    /**
+     * Initialize the HidesAttributes trait.
+     *
+     * @return void
+     */
+    #[Initialize]
+    public function initializeHidesAttributes()
+    {
+        $this->mergeHidden(static::resolveClassAttribute(Hidden::class, 'columns') ?? []);
+        $this->mergeVisible(static::resolveClassAttribute(Visible::class, 'columns') ?? []);
+    }
 
     /**
      * Get the hidden attributes for the model.
@@ -37,6 +53,23 @@ trait HidesAttributes
     public function setHidden(array $hidden)
     {
         $this->hidden = $hidden;
+
+        return $this;
+    }
+
+    /**
+     * Merge new hidden attributes with existing hidden attributes on the model.
+     *
+     * @param  array<string>  $hidden
+     * @return $this
+     */
+    public function mergeHidden(array $hidden)
+    {
+        if ($hidden === []) {
+            return $this;
+        }
+
+        $this->hidden = array_values(array_unique(array_merge($this->hidden, $hidden)));
 
         return $this;
     }
@@ -65,6 +98,23 @@ trait HidesAttributes
     }
 
     /**
+     * Merge new visible attributes with existing visible attributes on the model.
+     *
+     * @param  array<string>  $visible
+     * @return $this
+     */
+    public function mergeVisible(array $visible)
+    {
+        if ($visible === []) {
+            return $this;
+        }
+
+        $this->visible = array_values(array_unique(array_merge($this->visible, $visible)));
+
+        return $this;
+    }
+
+    /**
      * Make the given, typically hidden, attributes visible.
      *
      * @param  array<string>|string|null  $attributes
@@ -77,7 +127,7 @@ trait HidesAttributes
         $this->hidden = array_diff($this->hidden, $attributes);
 
         if (! empty($this->visible)) {
-            $this->visible = array_merge($this->visible, $attributes);
+            $this->visible = array_values(array_unique(array_merge($this->visible, $attributes)));
         }
 
         return $this;
@@ -103,9 +153,9 @@ trait HidesAttributes
      */
     public function makeHidden($attributes)
     {
-        $this->hidden = array_merge(
+        $this->hidden = array_values(array_unique(array_merge(
             $this->hidden, is_array($attributes) ? $attributes : func_get_args()
-        );
+        )));
 
         return $this;
     }

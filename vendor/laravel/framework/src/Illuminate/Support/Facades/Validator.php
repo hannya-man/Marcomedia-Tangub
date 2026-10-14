@@ -3,14 +3,15 @@
 namespace Illuminate\Support\Facades;
 
 /**
- * @method static \Illuminate\Validation\Validator make(array $data, array $rules, array $messages = [], array $customAttributes = [])
- * @method static array validate(array $data, array $rules, array $messages = [], array $customAttributes = [])
+ * @method static \Illuminate\Validation\Validator make(array $data, array $rules, array $messages = [], array $attributes = [])
+ * @method static array validate(array $data, array $rules, array $messages = [], array $attributes = [])
  * @method static void extend(string $rule, \Closure|string $extension, string|null $message = null)
  * @method static void extendImplicit(string $rule, \Closure|string $extension, string|null $message = null)
  * @method static void extendDependent(string $rule, \Closure|string $extension, string|null $message = null)
  * @method static void replacer(string $rule, \Closure|string $replacer)
  * @method static void includeUnvalidatedArrayKeys()
  * @method static void excludeUnvalidatedArrayKeys()
+ * @method static void fakeDnsLookups(bool $value = true)
  * @method static void resolver(\Closure $resolver)
  * @method static \Illuminate\Contracts\Translation\Translator getTranslator()
  * @method static \Illuminate\Validation\PresenceVerifierInterface getPresenceVerifier()

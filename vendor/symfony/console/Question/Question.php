@@ -21,25 +21,33 @@ use Symfony\Component\Console\Exception\LogicException;
  */
 class Question
 {
-    private string $question;
     private ?int $attempts = null;
     private bool $hidden = false;
     private bool $hiddenFallback = true;
+    /**
+     * @var (\Closure(string):list<string>)|null
+     */
     private ?\Closure $autocompleterCallback = null;
+    /**
+     * @var (\Closure(mixed):mixed)|null
+     */
     private ?\Closure $validator = null;
-    private string|int|bool|null|float $default;
+    /**
+     * @var (\Closure(mixed):mixed)|null
+     */
     private ?\Closure $normalizer = null;
     private bool $trimmable = true;
     private bool $multiline = false;
+    private ?int $timeout = null;
 
     /**
      * @param string                     $question The question to ask to the user
      * @param string|bool|int|float|null $default  The default answer to return if the user enters nothing
      */
-    public function __construct(string $question, string|bool|int|float $default = null)
-    {
-        $this->question = $question;
-        $this->default = $default;
+    public function __construct(
+        private string $question,
+        private string|bool|int|float|null $default = null,
+    ) {
     }
 
     /**
@@ -74,6 +82,27 @@ class Question
     public function setMultiline(bool $multiline): static
     {
         $this->multiline = $multiline;
+
+        return $this;
+    }
+
+    /**
+     * Returns the timeout in seconds.
+     */
+    public function getTimeout(): ?int
+    {
+        return $this->timeout;
+    }
+
+    /**
+     * Sets the maximum time the user has to answer the question.
+     * If the user does not answer within this time, an exception will be thrown.
+     *
+     * @return $this
+     */
+    public function setTimeout(?int $seconds): static
+    {
+        $this->timeout = $seconds;
 
         return $this;
     }
@@ -146,13 +175,12 @@ class Question
         if (\is_array($values)) {
             $values = $this->isAssoc($values) ? array_merge(array_keys($values), array_values($values)) : array_values($values);
 
-            $callback = static function () use ($values) {
-                return $values;
-            };
+            $callback = static fn () => $values;
         } elseif ($values instanceof \Traversable) {
-            $valueCache = null;
-            $callback = static function () use ($values, &$valueCache) {
-                return $valueCache ?? $valueCache = iterator_to_array($values, false);
+            $callback = static function () use ($values) {
+                static $valueCache;
+
+                return $valueCache ??= iterator_to_array($values, false);
             };
         } else {
             $callback = null;
@@ -163,6 +191,8 @@ class Question
 
     /**
      * Gets the callback function used for the autocompleter.
+     *
+     * @return (callable(string):list<string>)|null
      */
     public function getAutocompleterCallback(): ?callable
     {
@@ -172,17 +202,19 @@ class Question
     /**
      * Sets the callback function used for the autocompleter.
      *
-     * The callback is passed the user input as argument and should return an iterable of corresponding suggestions.
+     * The callback is passed the user input as argument and must return a list of corresponding suggestions.
+     *
+     * @param (callable(string):list<string>)|null $callback
      *
      * @return $this
      */
-    public function setAutocompleterCallback(callable $callback = null): static
+    public function setAutocompleterCallback(?callable $callback): static
     {
         if ($this->hidden && null !== $callback) {
             throw new LogicException('A hidden question cannot use the autocompleter.');
         }
 
-        $this->autocompleterCallback = null === $callback || $callback instanceof \Closure ? $callback : \Closure::fromCallable($callback);
+        $this->autocompleterCallback = null === $callback ? null : $callback(...);
 
         return $this;
     }
@@ -190,17 +222,21 @@ class Question
     /**
      * Sets a validator for the question.
      *
+     * @param (callable(mixed):mixed)|null $validator
+     *
      * @return $this
      */
-    public function setValidator(callable $validator = null): static
+    public function setValidator(?callable $validator): static
     {
-        $this->validator = null === $validator || $validator instanceof \Closure ? $validator : \Closure::fromCallable($validator);
+        $this->validator = null === $validator ? null : $validator(...);
 
         return $this;
     }
 
     /**
      * Gets the validator for the question.
+     *
+     * @return (callable(mixed):mixed)|null
      */
     public function getValidator(): ?callable
     {
@@ -240,13 +276,13 @@ class Question
     /**
      * Sets a normalizer for the response.
      *
-     * The normalizer can be a callable (a string), a closure or a class implementing __invoke.
+     * @param callable(mixed):mixed $normalizer
      *
      * @return $this
      */
     public function setNormalizer(callable $normalizer): static
     {
-        $this->normalizer = $normalizer instanceof \Closure ? $normalizer : \Closure::fromCallable($normalizer);
+        $this->normalizer = $normalizer(...);
 
         return $this;
     }
@@ -254,14 +290,14 @@ class Question
     /**
      * Gets the normalizer for the response.
      *
-     * The normalizer can ba a callable (a string), a closure or a class implementing __invoke.
+     * @return (callable(mixed):mixed)|null
      */
     public function getNormalizer(): ?callable
     {
         return $this->normalizer;
     }
 
-    protected function isAssoc(array $array)
+    protected function isAssoc(array $array): bool
     {
         return (bool) \count(array_filter(array_keys($array), 'is_string'));
     }

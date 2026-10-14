@@ -5,6 +5,7 @@ namespace Illuminate\Testing\Fluent;
 use Closure;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Traits\Conditionable;
 use Illuminate\Support\Traits\Macroable;
 use Illuminate\Support\Traits\Tappable;
 use Illuminate\Testing\AssertableJsonString;
@@ -16,6 +17,7 @@ class AssertableJson implements Arrayable
         Concerns\Matching,
         Concerns\Debugging,
         Concerns\Interaction,
+        Conditionable,
         Macroable,
         Tappable;
 
@@ -38,7 +40,6 @@ class AssertableJson implements Arrayable
      *
      * @param  array  $props
      * @param  string|null  $path
-     * @return void
      */
     protected function __construct(array $props, ?string $path = null)
     {
@@ -79,7 +80,7 @@ class AssertableJson implements Arrayable
      * @param  \Closure  $callback
      * @return $this
      */
-    protected function scope(string $key, Closure $callback): self
+    protected function scope(string $key, Closure $callback): static
     {
         $props = $this->prop($key);
         $path = $this->dotPath($key);
@@ -99,7 +100,7 @@ class AssertableJson implements Arrayable
      * @param  \Closure  $callback
      * @return $this
      */
-    public function first(Closure $callback): self
+    public function first(Closure $callback): static
     {
         $props = $this->prop();
 
@@ -123,7 +124,7 @@ class AssertableJson implements Arrayable
      * @param  \Closure  $callback
      * @return $this
      */
-    public function each(Closure $callback): self
+    public function each(Closure $callback): static
     {
         $props = $this->prop();
 
@@ -149,7 +150,7 @@ class AssertableJson implements Arrayable
      * @param  array  $data
      * @return static
      */
-    public static function fromArray(array $data): self
+    public static function fromArray(array $data): static
     {
         return new static($data);
     }
@@ -160,7 +161,7 @@ class AssertableJson implements Arrayable
      * @param  \Illuminate\Testing\AssertableJsonString  $json
      * @return static
      */
-    public static function fromAssertableJsonString(AssertableJsonString $json): self
+    public static function fromAssertableJsonString(AssertableJsonString $json): static
     {
         return static::fromArray($json->json());
     }

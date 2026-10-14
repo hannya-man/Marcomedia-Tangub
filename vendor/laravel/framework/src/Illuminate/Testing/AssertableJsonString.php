@@ -7,9 +7,12 @@ use Closure;
 use Countable;
 use Illuminate\Contracts\Support\Jsonable;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Testing\Assert as PHPUnit;
 use JsonSerializable;
+
+use function Illuminate\Support\enum_value;
 
 class AssertableJsonString implements ArrayAccess, Countable
 {
@@ -31,7 +34,6 @@ class AssertableJsonString implements ArrayAccess, Countable
      * Create a new assertable JSON string instance.
      *
      * @param  \Illuminate\Contracts\Support\Jsonable|\JsonSerializable|array|string  $jsonable
-     * @return void
      */
     public function __construct($jsonable)
     {
@@ -211,8 +213,6 @@ class AssertableJsonString implements ArrayAccess, Countable
             'within'.PHP_EOL.PHP_EOL.
             "[{$actual}]."
         );
-
-        return $this;
     }
 
     /**
@@ -223,7 +223,22 @@ class AssertableJsonString implements ArrayAccess, Countable
      */
     public function assertMissingPath($path)
     {
-        PHPUnit::assertFalse(Arr::has($this->json(), $path));
+        if (! str_contains($path, '*')) {
+            PHPUnit::assertFalse(Arr::has($this->json(), $path));
+
+            return $this;
+        }
+
+        $pattern = '#^'.(new Collection(explode('.', $path)))
+            ->map(fn ($segment) => $segment === '*' ? '[^.]+' : preg_quote($segment, '#'))
+            ->implode('\.').'(\.|$)#';
+
+        PHPUnit::assertFalse(
+            (new Collection(Arr::dot((array) $this->json())))
+                ->keys()
+                ->contains(fn ($key) => preg_match($pattern, $key) === 1),
+            "Found unexpected path [{$path}] within the response JSON."
+        );
 
         return $this;
     }
@@ -240,8 +255,22 @@ class AssertableJsonString implements ArrayAccess, Countable
         if ($expect instanceof Closure) {
             PHPUnit::assertTrue($expect($this->json($path)));
         } else {
-            PHPUnit::assertSame($expect, $this->json($path));
+            PHPUnit::assertSame(enum_value($expect), $this->json($path));
         }
+
+        return $this;
+    }
+
+    /**
+     * Assert that the given path in the response contains all of the expected values without looking at the order.
+     *
+     * @param  string  $path
+     * @param  array  $expect
+     * @return $this
+     */
+    public function assertPathCanonicalizing($path, $expect)
+    {
+        PHPUnit::assertEqualsCanonicalizing($expect, $this->json($path));
 
         return $this;
     }
@@ -251,16 +280,27 @@ class AssertableJsonString implements ArrayAccess, Countable
      *
      * @param  array|null  $structure
      * @param  array|null  $responseData
+     * @param  bool  $exact
      * @return $this
      */
-    public function assertStructure(?array $structure = null, $responseData = null)
+    public function assertStructure(?array $structure = null, $responseData = null, bool $exact = false)
     {
         if (is_null($structure)) {
             return $this->assertSimilar($this->decoded);
         }
 
         if (! is_null($responseData)) {
-            return (new static($responseData))->assertStructure($structure);
+            return (new static($responseData))->assertStructure($structure, null, $exact);
+        }
+
+        if ($exact) {
+            PHPUnit::assertIsArray($this->decoded);
+
+            $keys = (new Collection($structure))->map(fn ($value, $key) => is_array($value) ? $key : $value)->values();
+
+            if ($keys->all() !== ['*']) {
+                PHPUnit::assertEquals($keys->sort()->values()->all(), (new Collection($this->decoded))->keys()->sort()->values()->all());
+            }
         }
 
         foreach ($structure as $key => $value) {
@@ -268,12 +308,12 @@ class AssertableJsonString implements ArrayAccess, Countable
                 PHPUnit::assertIsArray($this->decoded);
 
                 foreach ($this->decoded as $responseDataItem) {
-                    $this->assertStructure($structure['*'], $responseDataItem);
+                    $this->assertStructure($structure['*'], $responseDataItem, $exact);
                 }
             } elseif (is_array($value)) {
                 PHPUnit::assertArrayHasKey($key, $this->decoded);
 
-                $this->assertStructure($structure[$key], $this->decoded[$key]);
+                $this->assertStructure($structure[$key], $this->decoded[$key], $exact);
             } else {
                 PHPUnit::assertArrayHasKey($value, $this->decoded);
             }

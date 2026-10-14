@@ -6,7 +6,7 @@ use DateTimeInterface;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Support\Facades\Date;
 
-class DatabaseUuidFailedJobProvider implements FailedJobProviderInterface, PrunableFailedJobProvider
+class DatabaseUuidFailedJobProvider implements CountableFailedJobProvider, FailedJobProviderInterface, PrunableFailedJobProvider
 {
     /**
      * The connection resolver implementation.
@@ -35,7 +35,6 @@ class DatabaseUuidFailedJobProvider implements FailedJobProviderInterface, Pruna
      * @param  \Illuminate\Database\ConnectionResolverInterface  $resolver
      * @param  string  $database
      * @param  string  $table
-     * @return void
      */
     public function __construct(ConnectionResolverInterface $resolver, $database, $table)
     {
@@ -65,6 +64,21 @@ class DatabaseUuidFailedJobProvider implements FailedJobProviderInterface, Pruna
         ]);
 
         return $uuid;
+    }
+
+    /**
+     * Get the IDs of all of the failed jobs.
+     *
+     * @param  string|null  $queue
+     * @return array
+     */
+    public function ids($queue = null)
+    {
+        return $this->getTable()
+            ->when(! is_null($queue), fn ($query) => $query->where('queue', $queue))
+            ->orderBy('id', 'desc')
+            ->pluck('uuid')
+            ->all();
     }
 
     /**
@@ -110,15 +124,18 @@ class DatabaseUuidFailedJobProvider implements FailedJobProviderInterface, Pruna
     }
 
     /**
-     * Flush all of the failed jobs from storage.
+     * Flush the failed jobs from storage.
      *
      * @param  int|null  $hours
+     * @param  string|null  $queue
      * @return void
      */
-    public function flush($hours = null)
+    public function flush($hours = null, $queue = null)
     {
         $this->getTable()->when($hours, function ($query, $hours) {
             $query->where('failed_at', '<=', Date::now()->subHours($hours));
+        })->when(! is_null($queue), function ($query) use ($queue) {
+            $query->where('queue', $queue);
         })->delete();
     }
 
@@ -135,7 +152,7 @@ class DatabaseUuidFailedJobProvider implements FailedJobProviderInterface, Pruna
         $totalDeleted = 0;
 
         do {
-            $deleted = $query->take(1000)->delete();
+            $deleted = $query->limit(1000)->delete();
 
             $totalDeleted += $deleted;
         } while ($deleted !== 0);
@@ -144,11 +161,26 @@ class DatabaseUuidFailedJobProvider implements FailedJobProviderInterface, Pruna
     }
 
     /**
+     * Count the failed jobs.
+     *
+     * @param  string|null  $connection
+     * @param  string|null  $queue
+     * @return int
+     */
+    public function count($connection = null, $queue = null)
+    {
+        return $this->getTable()
+            ->when($connection, fn ($builder) => $builder->whereConnection($connection))
+            ->when($queue, fn ($builder) => $builder->whereQueue($queue))
+            ->count();
+    }
+
+    /**
      * Get a new query builder instance for the table.
      *
      * @return \Illuminate\Database\Query\Builder
      */
-    protected function getTable()
+    public function getTable()
     {
         return $this->resolver->connection($this->database)->table($this->table);
     }

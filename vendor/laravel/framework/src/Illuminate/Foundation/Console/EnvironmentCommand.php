@@ -9,22 +9,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
 class EnvironmentCommand extends Command
 {
     /**
-     * The console command name.
+     * The name and signature of the console command.
      *
      * @var string
      */
-    protected $name = 'env';
-
-    /**
-     * The name of the console command.
-     *
-     * This name is used to identify the command during lazy loading.
-     *
-     * @var string|null
-     *
-     * @deprecated
-     */
-    protected static $defaultName = 'env';
+    protected $signature = 'env';
 
     /**
      * The console command description.
