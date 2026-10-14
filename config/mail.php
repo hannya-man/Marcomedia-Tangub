@@ -34,14 +34,17 @@ return [
     */
 
     'mailers' => [
+        // Gmail: smtp.gmail.com, port 587, the Google account's address and an App Password. Port 465
+        // connects encrypted from the start; any other port switches to encryption (STARTTLS) by itself.
         'smtp' => [
             'transport' => 'smtp',
+            'scheme' => env('MAIL_SCHEME'),
             'host' => env('MAIL_HOST', 'smtp.mailgun.org'),
             'port' => env('MAIL_PORT', 587),
-            'encryption' => env('MAIL_ENCRYPTION', 'tls'),
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+            // Seconds: a mail server that doesn't answer fails the email, not the whole page.
+            'timeout' => env('MAIL_TIMEOUT', 15),
             'local_domain' => env('MAIL_EHLO_DOMAIN'),
         ],
 
@@ -93,7 +96,7 @@ return [
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', 'Example'),
+        'name' => env('MAIL_FROM_NAME', 'Marcomedia POS'),
     ],
 
     /*

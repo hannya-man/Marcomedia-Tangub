@@ -24,7 +24,7 @@ class TwoFactorChallengeController extends Controller
 
     public function create(Request $request): View|RedirectResponse
     {
-        if (! $this->pendingUser($request)) {
+        if (! self::pendingUser($request)) {
             return redirect()->route('login');
         }
 
@@ -33,7 +33,7 @@ class TwoFactorChallengeController extends Controller
 
     public function store(Request $request, TwoFactor $twoFactor): RedirectResponse
     {
-        $user = $this->pendingUser($request);
+        $user = self::pendingUser($request);
         if (! $user) {
             return redirect()->route('login')->withErrors(['email' => 'That took a while, so please log in again.']);
         }
@@ -71,8 +71,9 @@ class TwoFactorChallengeController extends Controller
         return $response;
     }
 
-    // Whose password was just right, if it was recently enough.
-    private function pendingUser(Request $request): ?User
+    // Whose password was just right, if it was recently enough. Also checked before emailing a
+    // sign-in link (TwoFactorEmailRecoveryController).
+    public static function pendingUser(Request $request): ?User
     {
         $id = $request->session()->get('login.id');
         $at = (int) $request->session()->get('login.at');

@@ -1,8 +1,10 @@
 @php
     // Arrived from the login page, which faded in the brand screen (partials/auth-splash), or a code
     // refused: this page starts under it and fades it away to show the card, like the login page.
-    $authArriving = session()->pull('auth_splash') === 'out' || $errors->any();
+    // (Asking for the emailed link doesn't show the brand screen, so it comes back without it.)
+    $authArriving = session()->pull('auth_splash') === 'out' || $errors->hasAny(['code', 'recovery_code']);
     $useRecovery = (bool) old('use_recovery');
+    $emailRecovery = \App\Support\EmailRecovery::available();
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -53,6 +55,13 @@
                 </p>
             </div>
 
+            @if (session('email_link_sent'))
+                <div class="mb-4 flex gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-sm text-emerald-800">
+                    <i data-lucide="mail-check" class="w-4 h-4 mt-0.5 flex-shrink-0"></i>
+                    <span>{{ session('email_link_sent') }}</span>
+                </div>
+            @endif
+
             <form id="code-form" method="POST" action="{{ route('two-factor.login') }}" class="space-y-4">
                 @csrf
                 <input type="hidden" name="use_recovery" :value="recovery ? 1 : 0">
@@ -91,6 +100,17 @@
                         @click="recovery = false; $nextTick(() => document.getElementById('code').focus())">
                     Use the code from my app
                 </button>
+                {{-- No phone and no recovery codes: a sign-in link to the account's confirmed email
+                     (TwoFactorEmailRecoveryController). It turns two-step verification off. --}}
+                @if ($emailRecovery)
+                    <form method="POST" action="{{ route('two-factor.email') }}">
+                        @csrf
+                        <button type="submit" class="text-brand-600 hover:underline">No phone or codes? Email me a sign-in link</button>
+                    </form>
+                    @error('email_link')
+                        <p class="text-xs text-red-500 text-center">{{ $message }}</p>
+                    @enderror
+                @endif
                 <a href="{{ route('login') }}" class="text-slate-500 hover:underline">Back to log in</a>
             </div>
         </div>

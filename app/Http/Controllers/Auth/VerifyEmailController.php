@@ -3,26 +3,31 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Providers\RouteServiceProvider;
 use Illuminate\Auth\Events\Verified;
-use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 
+/**
+ * The "Confirm my email" button in the email sent from Profile (EmailVerificationNotificationController).
+ * An old or wrong link says so in Profile, where a new one is a click away (not a bare error page).
+ */
 class VerifyEmailController extends Controller
 {
-    /**
-     * Mark the authenticated user's email address as verified.
-     */
-    public function __invoke(EmailVerificationRequest $request): RedirectResponse
+    public function __invoke(Request $request, string $id, string $hash): RedirectResponse
     {
-        if ($request->user()->hasVerifiedEmail()) {
-            return redirect()->intended(RouteServiceProvider::HOME.'?verified=1');
+        $user = $request->user();
+        if (! $request->hasValidSignature()) {
+            return redirect()->route('profile.edit')->with('error', 'That confirmation link has expired. Send a new one below.');
+        }
+        if (! hash_equals((string) $user->getKey(), $id) || ! hash_equals(sha1($user->getEmailForVerification()), $hash)) {
+            return redirect()->route('profile.edit')->with('error', "That confirmation link is for another account, or for an email this account no longer uses.");
         }
 
-        if ($request->user()->markEmailAsVerified()) {
-            event(new Verified($request->user()));
+        if (! $user->hasVerifiedEmail() && $user->markEmailAsVerified()) {
+            event(new Verified($user));
         }
 
-        return redirect()->intended(RouteServiceProvider::HOME.'?verified=1');
+        return redirect()->route('profile.edit')
+            ->with('success', 'Your email is confirmed. If you forget your password or lose your phone, you can get a link sent to it.');
     }
 }

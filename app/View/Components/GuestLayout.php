@@ -5,11 +5,13 @@ namespace App\View\Components;
 use Illuminate\View\Component;
 use Illuminate\View\View;
 
+// The pages around logging in (a forgotten password, ...): the login page's look, a card on the brand backdrop.
 class GuestLayout extends Component
 {
-    /**
-     * Get the view / contents that represents the component.
-     */
+    public function __construct(public string $title = '')
+    {
+    }
+
     public function render(): View
     {
         return view('layouts.guest');

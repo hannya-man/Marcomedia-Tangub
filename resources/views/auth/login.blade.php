@@ -52,7 +52,6 @@
                 <p class="text-sm text-slate-500 mt-1">The best place to get customized!</p>
             </div>
 
-            {{-- Session status (e.g. password reset confirmations, if you re-add that later) --}}
             @if (session('status'))
                 <div class="mb-4 text-sm text-emerald-600 text-center">{{ session('status') }}</div>
             @endif
@@ -89,9 +88,15 @@
                     @enderror
                 </div>
 
-                <label class="flex items-center gap-2 text-sm text-slate-600 select-none cursor-pointer">
-                    <input type="checkbox" name="remember" class="w-4 h-4 rounded border-slate-300 accent-brand-600"> Remember me
-                </label>
+                <div class="flex items-center justify-between gap-3">
+                    <label class="flex items-center gap-2 text-sm text-slate-600 select-none cursor-pointer">
+                        <input type="checkbox" name="remember" class="w-4 h-4 rounded border-slate-300 accent-brand-600"> Remember me
+                    </label>
+                    {{-- Only once email is set up on the server (App\Support\EmailRecovery) --}}
+                    @if (\App\Support\EmailRecovery::available())
+                        <a href="{{ route('password.request') }}" class="text-sm text-brand-600 hover:underline">Forgot your password?</a>
+                    @endif
+                </div>
 
                 <button type="submit" class="w-full h-11 bg-ink hover:bg-slate-800 text-white text-sm font-medium rounded-lg">
                     Log In
