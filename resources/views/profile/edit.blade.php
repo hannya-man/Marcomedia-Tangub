@@ -47,6 +47,40 @@
         </form>
     </div>
 
+    {{-- A confirmed email: where a link to log back in can go (a forgotten password, a lost phone).
+         Only once email is set up on the server (App\Support\EmailRecovery). --}}
+    @if($emailRecovery)
+        @php $confirmed = auth()->user()->hasVerifiedEmail(); @endphp
+        <div class="bg-white rounded-xl border border-slate-200 p-6 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-start gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {{ $confirmed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
+                    <i data-lucide="{{ $confirmed ? 'mail-check' : 'mail-warning' }}" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                    <p class="font-semibold text-ink">Email for getting back in</p>
+                    <p class="text-xs text-slate-500 mt-0.5">
+                        @if($confirmed)
+                            Confirmed. If you forget your password or lose your phone, you can get a link sent to <span class="font-medium text-slate-700 break-all">{{ auth()->user()->email }}</span>.
+                        @else
+                            Not confirmed yet. Confirm <span class="font-medium text-slate-700 break-all">{{ auth()->user()->email }}</span> so you can get a link there if you forget your password or lose your phone.
+                        @endif
+                    </p>
+                    @if(session('status') === 'verification-link-sent')
+                        <p class="text-xs text-emerald-600 mt-1.5">Sent. Open the email and press <span class="font-medium">Confirm my email</span>. Check Spam too.</p>
+                    @endif
+                </div>
+            </div>
+            @unless($confirmed)
+                <form method="POST" action="{{ route('verification.send') }}">
+                    @csrf
+                    <button type="submit" class="text-sm font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg px-4 py-2">
+                        Send confirmation email
+                    </button>
+                </form>
+            @endunless
+        </div>
+    @endif
+
     {{-- Two-step verification: its own page (set up, recovery codes, a new phone) --}}
     <div class="bg-white rounded-xl border border-slate-200 p-6 flex flex-wrap items-center justify-between gap-4">
         <div class="flex items-start gap-3 min-w-0">

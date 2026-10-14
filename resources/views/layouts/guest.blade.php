@@ -1,31 +1,38 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="csrf-token" content="{{ csrf_token() }}">
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>{{ $title ? $title . ' - ' : '' }}Marcomedia POS</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="icon" href="/icons/icon-192.png">
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@1.55.0/dist/umd/lucide.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script>
+        // Leaving under the brand screen (logging in from here): no page transition on top of it.
+        window.addEventListener('pageswap', (e) => {
+            if (e.viewTransition && document.getElementById('auth-splash')?.classList.contains('is-on')) e.viewTransition.skipTransition();
+        });
+    </script>
+</head>
+<body class="auth-backdrop min-h-screen flex items-center justify-center p-4">
+    @include('partials.auth-splash', ['arriving' => false])
 
-        <title>{{ config('app.name', 'Laravel') }}</title>
+    <div class="login-card w-full max-w-sm">
+        <a href="{{ route('login') }}" class="block mb-6">
+            <img src="{{ asset('images/marcomedia-logo-transparent.png') }}" alt="Marcomedia: the best place to get customized" class="h-24 sm:h-32 w-auto mx-auto">
+        </a>
 
-        <!-- Fonts -->
-        <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
-
-        <!-- Scripts -->
-        @vite(['resources/css/app.css', 'resources/js/app.js'])
-    </head>
-    <body class="font-sans text-gray-900 antialiased">
-        <div class="min-h-screen flex flex-col sm:justify-center items-center pt-6 sm:pt-0 bg-gray-100">
-            <div>
-                {{-- On a dark tile: the logo's yellow lettering doesn't show on this light page --}}
-                <a href="/" class="block rounded-2xl bg-ink p-4">
-                    <img src="{{ asset('images/marcomedia-logo-transparent.png') }}" alt="Marcomedia" class="h-20 w-auto">
-                </a>
-            </div>
-
-            <div class="w-full sm:max-w-md mt-6 px-6 py-4 bg-white shadow-md overflow-hidden sm:rounded-lg">
-                {{ $slot }}
-            </div>
+        <div class="bg-white rounded-2xl shadow-xl p-8">
+            {{ $slot }}
         </div>
-    </body>
+    </div>
+
+    <script>lucide.createIcons();</script>
+    {{ $scripts ?? '' }}
+</body>
 </html>

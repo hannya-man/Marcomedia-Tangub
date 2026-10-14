@@ -36,14 +36,12 @@ class SalesAndAccountsTest extends TestCase
         $this->cashier = $this->user('cashier');
     }
 
-    public function test_there_is_no_sign_up_page_or_password_reset(): void
+    // (A forgotten password is set again by email, once email is set up: EmailRecoveryTest.)
+    public function test_there_is_no_sign_up_page(): void
     {
         $this->get('/register')->assertNotFound();
         $this->post('/register', ['name' => 'X', 'email' => 'x@example.com', 'password' => 'password1', 'password_confirmation' => 'password1'])->assertNotFound();
         $this->assertFalse(User::where('email', 'x@example.com')->exists());
-
-        $this->get('/forgot-password')->assertNotFound();
-        $this->post('/forgot-password', ['email' => $this->cashier->email])->assertNotFound();
     }
 
     public function test_staff_cant_delete_their_own_account(): void

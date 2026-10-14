@@ -39,7 +39,7 @@
         <div class="overflow-x-auto">
 <table class="w-full text-sm">
             <thead><tr class="text-left text-slate-500 bg-slate-50 border-b border-slate-200">
-                <th class="p-4">Name</th><th>Email</th><th>Role</th><th title="Two-step verification: a code from an authenticator app after the password">2-step</th><th></th>
+                <th class="p-4">Name</th><th>Email</th><th>Role</th><th class="whitespace-nowrap" title="Two-step verification: a code from an authenticator app after the password">2-step</th><th></th>
             </tr></thead>
             <tbody>
                 @forelse($users as $u)
@@ -51,7 +51,20 @@
                         {{ $u->name }}
                         @if($u->id === auth()->id())<span class="text-[10px] text-slate-400">(you)</span>@endif
                     </td>
-                    <td class="text-slate-500">{{ $u->email }}</td>
+                    <td class="text-slate-500">
+                        {{-- Confirmed in Profile: a forgotten password or a lost phone can be fixed by email --}}
+                        <span class="inline-flex items-center gap-1">
+                            {{ $u->email }}
+                            @if($u->hasVerifiedEmail())
+                                <span class="inline-flex flex-shrink-0 text-emerald-600" title="Email confirmed: they can get a link to log back in">
+                                    <i data-lucide="mail-check" class="w-3.5 h-3.5"></i><span class="sr-only">(confirmed)</span>
+                                </span>
+                            @endif
+                        </span>
+                        @if(!$u->hasVerifiedEmail() && $emailRecovery)
+                            <span class="block text-[11px] text-slate-400">Not confirmed yet</span>
+                        @endif
+                    </td>
                     <td class="capitalize">{{ $u->role }}</td>
                     <td>
                         @if($u->hasTwoFactor())
@@ -105,6 +118,9 @@
                 <label class="text-xs font-medium text-slate-600">Email</label>
                 <input type="email" name="email" required value="{{ old('email', $editingUser->email ?? '') }}"
                        class="mt-1 w-full text-sm rounded-lg border border-slate-300 bg-white px-3 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                @if($emailRecovery)
+                    <p class="text-[11px] text-slate-400 mt-1">Use their real email. They confirm it in their Profile, so they can get a link if they forget their password.</p>
+                @endif
             </div>
             <div>
                 <label class="text-xs font-medium text-slate-600">Role</label>

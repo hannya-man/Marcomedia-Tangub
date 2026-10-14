@@ -5,6 +5,7 @@ use App\Http\Controllers\Concerns\ConfirmsWithTwoFactor;
 use App\Models\ApprovalRequest;
 use App\Models\User;
 use App\Services\Auth\TwoFactor;
+use App\Support\EmailRecovery;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -24,8 +25,9 @@ class UserController extends Controller
             })
             ->orderBy('name')->get();
         $editingUser = $request->filled('edit') ? User::find($request->query('edit')) : null;
+        $emailRecovery = EmailRecovery::available();
 
-        return view('pages.users', compact('users', 'editingUser'));
+        return view('pages.users', compact('users', 'editingUser', 'emailRecovery'));
     }
 
     public function store(Request $request)
@@ -66,6 +68,10 @@ class UserController extends Controller
 
         $user->name = $validated['name'];
         $user->email = $validated['email'];
+        // A new email isn't confirmed yet: links to log back in (EmailRecovery) wait until it is.
+        if ($user->isDirty('email')) {
+            $user->email_verified_at = null;
+        }
         $user->role = $validated['role'];
         if (!empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);

@@ -356,11 +356,13 @@
                         a Restock / batch receipt on the Inventory page — not here.
                     </p>
 
+                    {{-- "Low stock at" only counts for a product that keeps a stock count, so it shows only
+                         then; its box is wide enough for the number (it was 51px and cut 15 to "1"). --}}
                     <div class="hidden md:grid md:grid-cols-12 gap-2 px-3 mb-1">
                         <label class="md:col-span-4 text-[11px] font-medium text-slate-500 uppercase tracking-wide">Size / Variant</label>
-                        <label class="md:col-span-4 text-[11px] font-medium text-slate-500 uppercase tracking-wide">Variant SKU</label>
+                        <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide" :class="trackInventory ? 'md:col-span-3' : 'md:col-span-5'">Variant SKU</label>
                         <label class="md:col-span-2 text-[11px] font-medium text-slate-500 uppercase tracking-wide">Price</label>
-                        <label class="md:col-span-1 text-[11px] font-medium text-slate-500 uppercase tracking-wide">Warn At</label>
+                        <label x-show="trackInventory" class="md:col-span-2 text-[11px] font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap" title="Warn when only this many are left">Low stock at</label>
                         <span class="md:col-span-1"></span>
                     </div>
 
@@ -372,20 +374,21 @@
                                     <input type="text" :name="`variants[${i}][variant_name]`" x-model="row.name" placeholder="e.g. Medium (M)"
                                         class="w-full text-sm rounded-lg border border-slate-300 px-3 py-2">
                                 </div>
-                                <div class="md:col-span-4">
+                                <div :class="trackInventory ? 'md:col-span-3' : 'md:col-span-5'">
                                     <label class="md:hidden text-[11px] font-medium text-slate-500 uppercase tracking-wide">Variant SKU</label>
                                     <input type="text" :name="`variants[${i}][sku]`" x-model="row.sku" placeholder="e.g. TSHIRT-SUB-001-M"
                                         class="w-full text-sm rounded-lg border border-slate-300 px-3 py-2">
                                 </div>
                                 <div class="md:col-span-2">
                                     <label class="md:hidden text-[11px] font-medium text-slate-500 uppercase tracking-wide">Price</label>
-                                    <input type="number" step="0.01" :name="`variants[${i}][price]`" x-model="row.price" placeholder="Base price if blank"
-                                        class="w-full text-sm rounded-lg border border-slate-300 px-3 py-2">
+                                    <input type="number" step="0.01" min="0" :name="`variants[${i}][price]`" x-model="row.price" placeholder="Base price"
+                                        title="Leave blank to use the base price" class="w-full text-sm text-right rounded-lg border border-slate-300 px-3 py-2">
                                 </div>
-                                <div class="md:col-span-1">
-                                    <label class="md:hidden text-[11px] font-medium text-slate-500 uppercase tracking-wide">Warning Limit</label>
-                                    <input type="number" :name="`variants[${i}][low_stock_threshold]`" x-model="row.threshold" placeholder="5"
-                                        class="w-full text-sm rounded-lg border border-slate-300 px-3 py-2">
+                                <div x-show="trackInventory" class="md:col-span-2">
+                                    <label class="md:hidden text-[11px] font-medium text-slate-500 uppercase tracking-wide">Low stock at</label>
+                                    <input type="number" min="0" step="1" :name="`variants[${i}][low_stock_threshold]`" x-model="row.threshold" placeholder="5"
+                                        :disabled="!trackInventory" title="Warn when only this many are left" aria-label="Low stock at"
+                                        class="w-full text-sm text-right rounded-lg border border-slate-300 px-3 py-2">
                                 </div>
                                 <div class="md:col-span-1 flex justify-end">
                                     <button type="button" @click="rows.splice(i,1)" title="Remove this size"

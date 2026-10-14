@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ConfirmsWithTwoFactor;
 use App\Services\Auth\TwoFactor;
+use App\Support\EmailRecovery;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
@@ -34,6 +35,8 @@ class TwoFactorController extends Controller
             'codesLeft' => $user->hasTwoFactor() ? $this->twoFactor->recoveryCodesLeft($user) : 0,
             // Just made: shown this once.
             'newCodes' => session('recovery_codes'),
+            // A lost phone can also be fixed by email, once the email is confirmed.
+            'suggestEmail' => EmailRecovery::available() && ! $user->hasVerifiedEmail(),
         ]);
     }
 

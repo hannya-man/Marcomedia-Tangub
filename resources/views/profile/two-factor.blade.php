@@ -72,6 +72,11 @@
                     <p class="text-sm mt-2 {{ $codesLeft <= 2 ? 'text-amber-700' : 'text-slate-500' }}">
                         {{ $codesLeft }} of 8 recovery codes left{{ $codesLeft <= 2 ? ': make new ones soon.' : '.' }}
                     </p>
+                    @if($suggestEmail)
+                        <p class="text-sm text-slate-500 mt-1">
+                            Lost your phone and your codes? <a href="{{ route('profile.edit') }}" class="text-brand-600 hover:underline">Confirm your email in Profile</a>, and you can get a sign-in link by email instead.
+                        </p>
+                    @endif
                 </div>
             </div>
 

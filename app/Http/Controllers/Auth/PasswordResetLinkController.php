@@ -3,42 +3,49 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Support\EmailRecovery;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
 use Illuminate\View\View;
+use Throwable;
 
+/**
+ * "Forgot your password?": a link to set a new one, by email. Only to an address its owner confirmed
+ * (Profile): an account's email can be wrong or someone else's, and the link opens the account.
+ */
 class PasswordResetLinkController extends Controller
 {
-    /**
-     * Display the password reset link request view.
-     */
-    public function create(): View
+    public function create(): View|RedirectResponse
     {
+        if (! EmailRecovery::available()) {
+            return redirect()->route('login');
+        }
+
         return view('auth.forgot-password');
     }
 
-    /**
-     * Handle an incoming password reset link request.
-     *
-     * @throws \Illuminate\Validation\ValidationException
-     */
+    // The answer is the same whatever was typed, so the page doesn't tell anyone which emails have
+    // accounts. Throttled by the password broker too: one link a minute per account.
     public function store(Request $request): RedirectResponse
     {
-        $request->validate([
-            'email' => ['required', 'email'],
-        ]);
+        if (! EmailRecovery::available()) {
+            return redirect()->route('login');
+        }
+        $request->validate(['email' => ['required', 'email']]);
 
-        // We will send the password reset link to this user. Once we have attempted
-        // to send the link, we will examine the response then see the message we
-        // need to show to the user. Finally, we'll send out a proper response.
-        $status = Password::sendResetLink(
-            $request->only('email')
-        );
+        $user = User::where('email', $request->input('email'))->first();
+        if ($user && $user->hasVerifiedEmail()) {
+            try {
+                Password::sendResetLink(['email' => $user->email]);
+            } catch (Throwable $e) {
+                report($e);
 
-        return $status == Password::RESET_LINK_SENT
-                    ? back()->with('status', __($status))
-                    : back()->withInput($request->only('email'))
-                            ->withErrors(['email' => __($status)]);
+                return back()->withInput()->withErrors(['email' => "The email couldn't be sent right now. Try again in a few minutes."]);
+            }
+        }
+
+        return back()->with('status', "If that email belongs to an account and was confirmed, a link to set a new password is on its way. Check your inbox, and Spam too.");
     }
 }
