@@ -10,22 +10,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
 class EventClearCommand extends Command
 {
     /**
-     * The console command name.
+     * The name and signature of the console command.
      *
      * @var string
      */
-    protected $name = 'event:clear';
-
-    /**
-     * The name of the console command.
-     *
-     * This name is used to identify the command during lazy loading.
-     *
-     * @var string|null
-     *
-     * @deprecated
-     */
-    protected static $defaultName = 'event:clear';
+    protected $signature = 'event:clear';
 
     /**
      * The console command description.
@@ -45,7 +34,6 @@ class EventClearCommand extends Command
      * Create a new config clear command instance.
      *
      * @param  \Illuminate\Filesystem\Filesystem  $files
-     * @return void
      */
     public function __construct(Filesystem $files)
     {

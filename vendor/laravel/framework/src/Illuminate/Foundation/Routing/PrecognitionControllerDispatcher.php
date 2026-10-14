@@ -22,7 +22,7 @@ class PrecognitionControllerDispatcher extends ControllerDispatcher
 
         $this->resolveParameters($route, $controller, $method);
 
-        abort(204);
+        abort(204, headers: ['Precognition-Success' => 'true']);
     }
 
     /**
@@ -31,6 +31,8 @@ class PrecognitionControllerDispatcher extends ControllerDispatcher
      * @param  object  $controller
      * @param  string  $method
      * @return $this
+     *
+     * @throws \RuntimeException
      */
     protected function ensureMethodExists($controller, $method)
     {

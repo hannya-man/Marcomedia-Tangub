@@ -17,26 +17,9 @@ use Symfony\Component\DependencyInjection\Extension\Extension as BaseExtension;
  * Allow adding classes to the class cache.
  *
  * @author Fabien Potencier <fabien@symfony.com>
+ *
+ * @internal to be deprecated in 8.1; use Symfony\Component\DependencyInjection\Extension\Extension instead
  */
 abstract class Extension extends BaseExtension
 {
-    private array $annotatedClasses = [];
-
-    /**
-     * Gets the annotated classes to cache.
-     */
-    public function getAnnotatedClassesToCompile(): array
-    {
-        return $this->annotatedClasses;
-    }
-
-    /**
-     * Adds annotated classes to the class cache.
-     *
-     * @param array $annotatedClasses An array of class patterns
-     */
-    public function addAnnotatedClassesToCompile(array $annotatedClasses)
-    {
-        $this->annotatedClasses = array_merge($this->annotatedClasses, $annotatedClasses);
-    }
 }

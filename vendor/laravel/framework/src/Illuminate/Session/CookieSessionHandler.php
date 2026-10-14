@@ -4,6 +4,7 @@ namespace Illuminate\Session;
 
 use Illuminate\Contracts\Cookie\QueueingFactory as CookieJar;
 use Illuminate\Support\InteractsWithTime;
+use RuntimeException;
 use SessionHandlerInterface;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -33,16 +34,24 @@ class CookieSessionHandler implements SessionHandlerInterface
     protected $minutes;
 
     /**
+     * Indicates whether the session should be expired when the browser closes.
+     *
+     * @var bool
+     */
+    protected $expireOnClose;
+
+    /**
      * Create a new cookie driven handler instance.
      *
      * @param  \Illuminate\Contracts\Cookie\QueueingFactory  $cookie
      * @param  int  $minutes
-     * @return void
+     * @param  bool  $expireOnClose
      */
-    public function __construct(CookieJar $cookie, $minutes)
+    public function __construct(CookieJar $cookie, $minutes, $expireOnClose = false)
     {
         $this->cookie = $cookie;
         $this->minutes = $minutes;
+        $this->expireOnClose = $expireOnClose;
     }
 
     /**
@@ -63,6 +72,26 @@ class CookieSessionHandler implements SessionHandlerInterface
     public function close(): bool
     {
         return true;
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * @return string
+     */
+    public function create_sid(): string
+    {
+        return session_create_id() ?: throw new RuntimeException('Unable to create a session ID.');
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * @return bool
+     */
+    public function validateId($id): bool
+    {
+        return $this->request->cookies->has($id);
     }
 
     /**
@@ -92,7 +121,7 @@ class CookieSessionHandler implements SessionHandlerInterface
         $this->cookie->queue($sessionId, json_encode([
             'data' => $data,
             'expires' => $this->availableAt($this->minutes * 60),
-        ]), $this->minutes);
+        ]), $this->expireOnClose ? 0 : $this->minutes);
 
         return true;
     }

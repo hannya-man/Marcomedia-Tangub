@@ -5,6 +5,9 @@ namespace Illuminate\Validation\Rules;
 use Closure;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
+
+use function Illuminate\Support\enum_value;
 
 trait DatabaseRule
 {
@@ -41,7 +44,6 @@ trait DatabaseRule
      *
      * @param  string  $table
      * @param  string  $column
-     * @return void
      */
     public function __construct($table, $column = 'NULL')
     {
@@ -81,7 +83,7 @@ trait DatabaseRule
      * Set a "where" constraint on the query.
      *
      * @param  \Closure|string  $column
-     * @param  \Illuminate\Contracts\Support\Arrayable|array|string|int|null  $value
+     * @param  \Illuminate\Contracts\Support\Arrayable|\UnitEnum|\Closure|array|string|int|bool|null  $value
      * @return $this
      */
     public function where($column, $value = null)
@@ -98,7 +100,13 @@ trait DatabaseRule
             return $this->whereNull($column);
         }
 
-        $this->wheres[] = compact('column', 'value');
+        $value = enum_value($value);
+
+        if ($value === false) {
+            $value = 0;
+        }
+
+        $this->wheres[] = ['column' => $column, 'value' => $value];
 
         return $this;
     }
@@ -107,13 +115,19 @@ trait DatabaseRule
      * Set a "where not" constraint on the query.
      *
      * @param  string  $column
-     * @param  \Illuminate\Contracts\Support\Arrayable|array|string  $value
+     * @param  \Illuminate\Contracts\Support\Arrayable|\UnitEnum|array|string|int|bool  $value
      * @return $this
      */
     public function whereNot($column, $value)
     {
         if ($value instanceof Arrayable || is_array($value)) {
             return $this->whereNotIn($column, $value);
+        }
+
+        $value = enum_value($value);
+
+        if ($value === false) {
+            $value = 0;
         }
 
         return $this->where($column, '!'.$value);
@@ -145,7 +159,7 @@ trait DatabaseRule
      * Set a "where in" constraint on the query.
      *
      * @param  string  $column
-     * @param  \Illuminate\Contracts\Support\Arrayable|array  $values
+     * @param  \Illuminate\Contracts\Support\Arrayable|\BackedEnum|array  $values
      * @return $this
      */
     public function whereIn($column, $values)
@@ -159,7 +173,7 @@ trait DatabaseRule
      * Set a "where not in" constraint on the query.
      *
      * @param  string  $column
-     * @param  \Illuminate\Contracts\Support\Arrayable|array  $values
+     * @param  \Illuminate\Contracts\Support\Arrayable|\BackedEnum|array  $values
      * @return $this
      */
     public function whereNotIn($column, $values)
@@ -225,8 +239,8 @@ trait DatabaseRule
      */
     protected function formatWheres()
     {
-        return collect($this->wheres)->map(function ($where) {
-            return $where['column'].','.'"'.str_replace('"', '""', $where['value']).'"';
-        })->implode(',');
+        return (new Collection($this->wheres))
+            ->map(fn ($where) => $where['column'].','.'"'.str_replace('"', '""', $where['value']).'"')
+            ->implode(',');
     }
 }

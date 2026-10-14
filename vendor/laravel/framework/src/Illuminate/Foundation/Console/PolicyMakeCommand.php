@@ -7,29 +7,23 @@ use Illuminate\Support\Str;
 use LogicException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+
+use function Laravel\Prompts\suggest;
 
 #[AsCommand(name: 'make:policy')]
 class PolicyMakeCommand extends GeneratorCommand
 {
     /**
-     * The console command name.
+     * The name and signature of the console command.
      *
      * @var string
      */
-    protected $name = 'make:policy';
-
-    /**
-     * The name of the console command.
-     *
-     * This name is used to identify the command during lazy loading.
-     *
-     * @var string|null
-     *
-     * @deprecated
-     */
-    protected static $defaultName = 'make:policy';
+    protected $signature = 'make:policy
+                    {name : The name of the policy}
+                    {--f|force : Create the class even if the policy already exists}
+                    {--m|model= : The model that the policy applies to}
+                    {--g|guard= : The guard that the policy relies on}';
 
     /**
      * The console command description.
@@ -170,8 +164,8 @@ class PolicyMakeCommand extends GeneratorCommand
     protected function getStub()
     {
         return $this->option('model')
-                    ? $this->resolveStubPath('/stubs/policy.stub')
-                    : $this->resolveStubPath('/stubs/policy.plain.stub');
+            ? $this->resolveStubPath('/stubs/policy.stub')
+            : $this->resolveStubPath('/stubs/policy.plain.stub');
     }
 
     /**
@@ -183,8 +177,8 @@ class PolicyMakeCommand extends GeneratorCommand
     protected function resolveStubPath($stub)
     {
         return file_exists($customPath = $this->laravel->basePath(trim($stub, '/')))
-                        ? $customPath
-                        : __DIR__.$stub;
+            ? $customPath
+            : __DIR__.$stub;
     }
 
     /**
@@ -196,20 +190,6 @@ class PolicyMakeCommand extends GeneratorCommand
     protected function getDefaultNamespace($rootNamespace)
     {
         return $rootNamespace.'\Policies';
-    }
-
-    /**
-     * Get the console command arguments.
-     *
-     * @return array
-     */
-    protected function getOptions()
-    {
-        return [
-            ['force', 'f', InputOption::VALUE_NONE, 'Create the class even if the policy already exists'],
-            ['model', 'm', InputOption::VALUE_OPTIONAL, 'The model that the policy applies to'],
-            ['guard', 'g', InputOption::VALUE_OPTIONAL, 'The guard that the policy relies on'],
-        ];
     }
 
     /**
@@ -225,13 +205,12 @@ class PolicyMakeCommand extends GeneratorCommand
             return;
         }
 
-        $model = $this->components->askWithCompletion(
-            'What model should this policy apply to?',
-            $this->possibleModels(),
-            'none'
+        $model = suggest(
+            'What model should this policy apply to? (Optional)',
+            $this->findAvailableModels(),
         );
 
-        if ($model && $model !== 'none') {
+        if ($model) {
             $input->setOption('model', $model);
         }
     }

@@ -6,29 +6,22 @@ use Illuminate\Console\GeneratorCommand;
 use InvalidArgumentException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+
+use function Laravel\Prompts\suggest;
 
 #[AsCommand(name: 'make:observer')]
 class ObserverMakeCommand extends GeneratorCommand
 {
     /**
-     * The console command name.
+     * The name and signature of the console command.
      *
      * @var string
      */
-    protected $name = 'make:observer';
-
-    /**
-     * The name of the console command.
-     *
-     * This name is used to identify the command during lazy loading.
-     *
-     * @var string|null
-     *
-     * @deprecated
-     */
-    protected static $defaultName = 'make:observer';
+    protected $signature = 'make:observer
+                    {name : The name of the observer}
+                    {--f|force : Create the class even if the observer already exists}
+                    {--m|model= : The model that the observer applies to}';
 
     /**
      * The console command description.
@@ -97,7 +90,7 @@ class ObserverMakeCommand extends GeneratorCommand
      */
     protected function parseModel($model)
     {
-        if (preg_match('([^A-Za-z0-9_/\\\\])', $model)) {
+        if (preg_match('/[^A-Za-z0-9_\/\\\\]/', $model)) {
             throw new InvalidArgumentException('Model name contains invalid characters.');
         }
 
@@ -141,19 +134,6 @@ class ObserverMakeCommand extends GeneratorCommand
     }
 
     /**
-     * Get the console command arguments.
-     *
-     * @return array
-     */
-    protected function getOptions()
-    {
-        return [
-            ['force', 'f', InputOption::VALUE_NONE, 'Create the class even if the observer already exists'],
-            ['model', 'm', InputOption::VALUE_OPTIONAL, 'The model that the observer applies to'],
-        ];
-    }
-
-    /**
      * Interact further with the user if they were prompted for missing arguments.
      *
      * @param  \Symfony\Component\Console\Input\InputInterface  $input
@@ -166,13 +146,12 @@ class ObserverMakeCommand extends GeneratorCommand
             return;
         }
 
-        $model = $this->components->askWithCompletion(
-            'What model should this observer apply to?',
-            $this->possibleModels(),
-            'none'
+        $model = suggest(
+            'What model should be observed? (Optional)',
+            $this->findAvailableModels(),
         );
 
-        if ($model && $model !== 'none') {
+        if ($model) {
             $input->setOption('model', $model);
         }
     }

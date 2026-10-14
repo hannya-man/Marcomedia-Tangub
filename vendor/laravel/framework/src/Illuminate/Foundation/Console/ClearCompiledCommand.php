@@ -9,22 +9,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
 class ClearCompiledCommand extends Command
 {
     /**
-     * The console command name.
+     * The name and signature of the console command.
      *
      * @var string
      */
-    protected $name = 'clear-compiled';
-
-    /**
-     * The name of the console command.
-     *
-     * This name is used to identify the command during lazy loading.
-     *
-     * @var string|null
-     *
-     * @deprecated
-     */
-    protected static $defaultName = 'clear-compiled';
+    protected $signature = 'clear-compiled';
 
     /**
      * The console command description.

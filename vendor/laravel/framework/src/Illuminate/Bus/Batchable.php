@@ -12,7 +12,7 @@ trait Batchable
     /**
      * The batch ID (if applicable).
      *
-     * @var string
+     * @var string|null
      */
     public $batchId;
 
@@ -35,7 +35,7 @@ trait Batchable
         }
 
         if ($this->batchId) {
-            return Container::getInstance()->make(BatchRepository::class)->find($this->batchId);
+            return Container::getInstance()->make(BatchRepository::class)?->find($this->batchId);
         }
     }
 
@@ -48,7 +48,7 @@ trait Batchable
     {
         $batch = $this->batch();
 
-        return $batch && ! $batch->cancelled();
+        return $batch && ! $batch->finished() && ! $batch->cancelled();
     }
 
     /**
@@ -74,7 +74,7 @@ trait Batchable
      * @param  int  $failedJobs
      * @param  array  $failedJobIds
      * @param  array  $options
-     * @param  \Carbon\CarbonImmutable  $createdAt
+     * @param  \Carbon\CarbonImmutable|null  $createdAt
      * @param  \Carbon\CarbonImmutable|null  $cancelledAt
      * @param  \Carbon\CarbonImmutable|null  $finishedAt
      * @return array{0: $this, 1: \Illuminate\Support\Testing\Fakes\BatchFake}
