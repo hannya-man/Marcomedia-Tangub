@@ -134,6 +134,10 @@
             </label>
 
             <button type="submit" class="bg-ink hover:bg-slate-800 text-white text-sm rounded-lg px-5 py-2.5">Update Password</button>
+            {{-- Said like Profile Information's "Saved.": the page used to reload without a word --}}
+            @if (session('status') === 'password-updated')
+                <span class="text-xs text-emerald-600 ml-2">Password updated.</span>
+            @endif
         </form>
     </div>
 </div>

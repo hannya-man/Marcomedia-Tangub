@@ -73,6 +73,9 @@ class TwoFactorTest extends TestCase
         $this->post(route('two-factor.login'), ['use_recovery' => 1, 'recovery_code' => strtoupper($first)])
             ->assertRedirect('/')->assertSessionHas('error', fn ($m) => str_contains($m, '7 left'));
         $this->assertAuthenticatedAs($user);
+        // Still said on the page '/' leads to (it was used up on the way).
+        $this->get('/')->assertRedirect(route('pos.index'));
+        $this->get(route('pos.index'))->assertOk()->assertSee('7 left');
 
         $this->post(route('logout'));
         $this->logIn($user);

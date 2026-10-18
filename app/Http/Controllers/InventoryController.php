@@ -42,8 +42,15 @@ class InventoryController extends Controller
         // Products added or changed by cashiers, waiting for an owner (a cashier: their own).
         $waitingCount = ApprovalRequest::pending()->whereIn('type', ['product.create', 'product.update'])
             ->when($request->user()->role !== 'admin', fn ($q) => $q->where('requested_by', $request->user()->id))->count();
+        // Add Product suggests SKUs from the names as the server makes them: each category's prefix,
+        // and the SKUs already used (archived ones too), so its suggestion is a free one.
+        $skuPrefixes = $categories->mapWithKeys(fn ($c) => [(string) $c->id => $this->products->categoryPrefix($c->id)])->filter();
+        $takenSkus = [
+            'products' => Product::pluck('sku')->map(fn ($s) => strtoupper($s))->values(),
+            'sizes' => ProductVariant::pluck('sku')->filter()->map(fn ($s) => strtoupper($s))->values(),
+        ];
 
-        return view('inventory.index', compact('products', 'categories', 'archivedCount', 'materials', 'waitingCount'));
+        return view('inventory.index', compact('products', 'categories', 'archivedCount', 'materials', 'waitingCount', 'skuPrefixes', 'takenSkus'));
     }
 
     // Add Product now lives inline on the index page as a popout panel —
@@ -111,7 +118,7 @@ class InventoryController extends Controller
         $usedIds = $product->variants->reject(fn ($v) => $cutIds->contains($v->id))->flatMap->materials->pluck('id');
         $materials = Material::whereNull('sheet_width')
             ->where(fn ($q) => $q->whereNull('archived_at')->orWhereIn('id', $usedIds))
-            ->orderBy('name')->get(['id', 'name', 'unit', 'archived_at']);
+            ->orderBy('name')->get(['id', 'name', 'unit', 'inventory_type', 'archived_at']);
         $categories = Category::whereNull('archived_at')->orWhere('id', $product->category_id)->inShopOrder()->get();
         // Boards or rolls the sizes are cut from or printed on (a board's sizes are set on its card).
         $cutFrom = $product->variants->flatMap->materials->filter->isSheet()->unique('id')->values();
@@ -170,14 +177,20 @@ class InventoryController extends Controller
             $signedQty = -$validated['quantity'];
         }
 
-        $variant->adjustStock(
-            $signedQty,
-            $validated['type'],
-            'manual',
-            null,
-            $validated['remarks'] ?? null,
-            Auth::id()
-        );
+        // Making stocked items uses up what they're made from: short of it, nothing is added and the
+        // page says why (it used to be a server error).
+        try {
+            $variant->adjustStock(
+                $signedQty,
+                $validated['type'],
+                'manual',
+                null,
+                $validated['remarks'] ?? null,
+                Auth::id()
+            );
+        } catch (\RuntimeException $e) {
+            return back()->with('error', "Stock not added to {$variant->variant_name}. " . $e->getMessage());
+        }
 
         return back()->with('success', "Stock updated for {$variant->variant_name}." . ($signedQty > 0 ? $backorders->fillAfterRestock(Auth::id()) : ''));
     }

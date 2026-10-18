@@ -5,15 +5,17 @@
     // A refused Add Product comes back open, with what was typed and why it wasn't saved
     // (it used to close, and the product was simply missing).
     $addOld = old('_form') === 'add-product';
+    $oldLines = fn ($lines) => collect(is_array($lines) ? $lines : [])->values()->map(fn ($line) => [
+        'material_id' => (string) ($line['material_id'] ?? ''),
+        'quantity_per_unit' => $line['quantity_per_unit'] ?? '',
+    ])->all();
     $oldRows = collect($addOld ? old('variants', []) : [])->values()->map(fn ($row) => [
         'name' => $row['variant_name'] ?? '',
         'sku' => $row['sku'] ?? '',
+        'skuTouched' => filled($row['sku'] ?? null),
         'price' => $row['price'] ?? '',
         'threshold' => $row['low_stock_threshold'] ?? 5,
-        'materials' => collect($row['materials'] ?? [])->values()->map(fn ($line) => [
-            'material_id' => (string) ($line['material_id'] ?? ''),
-            'quantity_per_unit' => $line['quantity_per_unit'] ?? '',
-        ])->all(),
+        'materials' => $oldLines($row['materials'] ?? []),
     ])->all();
 @endphp
 @if($addOld)
@@ -22,15 +24,49 @@
 
 @section('content')
 @php $isOwner = auth()->user()->role === 'admin'; @endphp
-<div x-data="{
-        addingProduct: @js($addOld), hasVariants: @js($addOld && old('has_variants')),
-        trackInventory: @js($addOld ? (bool) old('track_inventory') : true),
-        addingCategory: @js($addOld && filled(old('new_category_name'))),
-        name: @js($addOld ? (string) old('name') : ''), price: @js($addOld ? (string) old('base_price') : ''),
-        rows: @js($oldRows), confirmingDelete: null,
+<script>
+// The Add Product form: what was typed (brought back after a refused save), the SKUs it suggests
+// from the names, and what each material is counted in.
+window.addProductData = @js([
+    'open' => $addOld,
+    'hasVariants' => $addOld && old('has_variants'),
+    'trackInventory' => $addOld ? (bool) old('track_inventory') : true,
+    'addingCategory' => $addOld && filled(old('new_category_name')),
+    'name' => $addOld ? (string) old('name') : '',
+    'price' => $addOld ? (string) old('base_price') : '',
+    'sku' => $addOld ? (string) old('sku') : '',
+    'categoryId' => $addOld ? (string) old('category_id') : '',
+    'usesMaterials' => $addOld ? (string) old('uses_materials') : '',
+    'lowStock' => $addOld ? old('low_stock_threshold', 5) : 5,
+    'materials' => $oldLines($addOld ? old('materials', []) : []),
+    'rows' => $oldRows,
+    'prefixes' => $skuPrefixes,
+    'takenProducts' => $takenSkus['products'],
+    'takenSizes' => $takenSkus['sizes'],
+    'materialInfo' => $materials->mapWithKeys(fn ($m) => [(string) $m->id => ['unit' => $m->unit, 'counted' => $m->inventory_type !== 'continuous']]),
+]);
+
+window.inventoryPage = function () {
+    const d = window.addProductData;
+    // As the server makes them (ProductEditor::skuCode, Str::slug): "Birthday/Debut" -> BIRTHDAY-DEBUT,
+    // "Kid's 3.5in" -> KIDS-35IN
+    const code = (text) => (text || '').normalize('NFKD').replace(/\p{M}/gu, '').replace(/_/g, '-').replace(/@/g, '-at-')
+        .replace(/\//g, ' ').toUpperCase().replace(/[^A-Z0-9\s-]+/g, '').replace(/[\s-]+/g, '-').replace(/^-+|-+$/g, '');
+    const join = (...parts) => parts.filter(Boolean).join('-').slice(0, 60).replace(/-+$/, '');
+    const free = (sku, taken) => {
+        let candidate = sku;
+        for (let n = 2; taken.includes(candidate.toUpperCase()); n++) candidate = sku.slice(0, 60 - String(n).length - 1).replace(/-+$/, '') + '-' + n;
+        return candidate;
+    };
+    return {
+        addingProduct: d.open, hasVariants: d.hasVariants, trackInventory: d.trackInventory,
+        addingCategory: d.addingCategory, name: d.name, price: d.price,
+        sku: d.sku, skuTouched: d.sku.trim() !== '', categoryId: d.categoryId,
+        usesMaterials: d.usesMaterials, lowStock: d.lowStock, materials: d.materials,
+        rows: d.rows, confirmingDelete: null,
         init() {
             // Sizes brought back after a refused save are drawn after the page's icons were.
-            if (this.rows.length) this.$nextTick(() => lucide.createIcons({ root: this.$root }));
+            if (this.rows.length || this.materials.length) this.$nextTick(() => lucide.createIcons({ root: this.$root }));
         },
         closeAddProduct() {
             const hasProgress = this.name.trim() !== '' || this.price !== '' || this.rows.length > 0;
@@ -38,8 +74,45 @@
                 return;
             }
             this.addingProduct = false;
-        }
-     }">
+        },
+        // The product's SKU from its category and name, until one is typed in; the sizes' follow it.
+        productSku() {
+            if (!this.skuTouched) {
+                const base = join(this.addingCategory ? '' : (d.prefixes[this.categoryId] || ''), code(this.name));
+                this.sku = this.name.trim() && base ? free(base, d.takenProducts) : '';
+            }
+            this.rows.forEach((row) => this.sizeSku(row));
+        },
+        sizeSku(row) {
+            if (row.skuTouched) return;
+            if (!this.sku.trim() || !row.name.trim()) { row.sku = ''; return; }
+            const others = this.rows.filter((r) => r !== row).map((r) => (r.sku || '').toUpperCase());
+            row.sku = free(join(this.sku.trim().toUpperCase(), code(row.name)), d.takenSizes.concat(others));
+        },
+        typedSku(row) {
+            if (row) { row.skuTouched = row.sku.trim() !== ''; if (!row.skuTouched) this.sizeSku(row); return; }
+            this.skuTouched = this.sku.trim() !== '';
+            this.productSku();
+        },
+        addSize() {
+            this.rows.push({ name: '', sku: '', skuTouched: false, price: '', threshold: 5, materials: this.usesMaterials === '1' ? [this.line()] : [] });
+            this.$nextTick(() => lucide.createIcons());
+        },
+        // "It uses materials": each list starts with a line to fill in.
+        chooseMaterials(value) {
+            this.usesMaterials = value;
+            if (value !== '1') return;
+            if (!this.materials.length) this.materials.push(this.line());
+            this.rows.forEach((row) => { if (!row.materials.length) row.materials.push(this.line()); });
+            this.$nextTick(() => lucide.createIcons());
+        },
+        line() { return { material_id: '', quantity_per_unit: '' }; },
+        isCounted(id) { return !!(d.materialInfo[id] || {}).counted; },
+        unitLabel(id) { const m = d.materialInfo[id]; return m ? m.unit + ' each' : ''; },
+    };
+};
+</script>
+<div x-data="inventoryPage()">
 
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <form method="GET" id="inventory-search-form" class="flex gap-2">
@@ -274,12 +347,12 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="md:col-span-2">
                         <label class="text-xs font-medium text-slate-600 mb-1.5 block">Product Name</label>
-                        <input type="text" name="name" x-model="name" required placeholder="e.g. Sublimation T-Shirt"
+                        <input type="text" name="name" x-model="name" @input="productSku()" required placeholder="e.g. Sublimation T-Shirt"
                             class="w-full text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 px-3.5 py-2.5">
                     </div>
                     <div>
-                        <label class="text-xs font-medium text-slate-600 mb-1.5 block">SKU</label>
-                        <input type="text" name="sku" required placeholder="e.g. TSHIRT-SUB-001" value="{{ $addOld ? old('sku') : '' }}"
+                        <label class="text-xs font-medium text-slate-600 mb-1.5 block">SKU <span class="font-normal text-slate-400">(filled in from the name and category; you can change it)</span></label>
+                        <input type="text" name="sku" x-model="sku" @input="typedSku()" maxlength="60" placeholder="Type the name first"
                             class="w-full text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 px-3.5 py-2.5">
                     </div>
                     <div>
@@ -295,9 +368,9 @@
                                 <x-select-menu name="category_id"
                                     :options="collect(['' => 'Select a category'])->union($categories->pluck('name', 'id'))->all()"
                                     :selected="$addOld ? old('category_id') : null"
-                                    placeholder="Select a category" />
+                                    placeholder="Select a category" onchange="categoryId = value; productSku()" />
                             </div>
-                            <button type="button" @click="addingCategory = true"
+                            <button type="button" @click="addingCategory = true; productSku()"
                                     class="text-xs px-3 py-2 border border-slate-300 rounded-lg text-slate-600 whitespace-nowrap flex items-center gap-1">
                                 <i data-lucide="plus" class="w-3.5 h-3.5"></i> New category
                             </button>
@@ -307,7 +380,7 @@
                             <input type="text" name="new_category_name" placeholder="Type a new category name" :disabled="!addingCategory"
                                 value="{{ $addOld ? old('new_category_name') : '' }}"
                                 class="flex-1 text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 px-3.5 py-2.5">
-                            <button type="button" @click="addingCategory = false"
+                            <button type="button" @click="addingCategory = false; productSku()"
                                     class="text-xs px-3 py-2 border border-slate-300 rounded-lg text-slate-600">Cancel</button>
                         </div>
                     </div>
@@ -346,7 +419,46 @@
                                 <p class="text-xs text-slate-500 mt-0.5">e.g. S/M/L/XL for shirts, or 6in/8in/10in for trophies — each size tracked separately.</p>
                             </div>
                         </label>
+                        {{-- One size: its stock count warns here (each size has its own below) --}}
+                        <div x-show="trackInventory && !hasVariants" class="flex items-center gap-2 px-3 text-sm text-slate-600">
+                            <label for="add-low-stock">Warn me when only</label>
+                            <input id="add-low-stock" type="number" min="0" step="1" name="low_stock_threshold" x-model="lowStock" :disabled="!trackInventory || hasVariants"
+                                class="w-20 text-sm text-right rounded-lg border border-slate-300 px-2 py-1.5">
+                            <span>are left</span>
+                        </div>
                     </div>
+                </div>
+
+                {{-- Always asked: what each one takes from the stock when it's sold (or, kept in stock, when
+                     it's made), or that it takes nothing. --}}
+                <div class="border-t border-slate-100 pt-4">
+                    <p class="text-sm font-medium text-ink mb-1">What is it made from?</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                        <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer"
+                               :class="usesMaterials === '1' ? 'border-brand-400 bg-brand-50/50' : 'border-slate-200'">
+                            <input type="radio" name="uses_materials" value="1" required :checked="usesMaterials === '1'" @change="chooseMaterials('1')" class="mt-1 text-brand-600 focus:ring-brand-500">
+                            <div>
+                                <p class="text-sm font-medium text-ink">It uses materials</p>
+                                <p class="text-xs text-slate-500 mt-0.5">Pick each one and how much it takes: counted ones (blanks, sheets) in whole pieces, measured ones (ink, fabric) in their unit.</p>
+                            </div>
+                        </label>
+                        <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer"
+                               :class="usesMaterials === '0' ? 'border-brand-400 bg-brand-50/50' : 'border-slate-200'">
+                            <input type="radio" name="uses_materials" value="0" required :checked="usesMaterials === '0'" @change="chooseMaterials('0')" class="mt-1 text-brand-600 focus:ring-brand-500">
+                            <div>
+                                <p class="text-sm font-medium text-ink">No materials</p>
+                                <p class="text-xs text-slate-500 mt-0.5">A service or a fee, or an item bought ready-made.</p>
+                            </div>
+                        </label>
+                    </div>
+                    @if($materials->isEmpty())
+                        <p x-show="usesMaterials === '1'" class="mt-2 text-xs text-amber-700">No materials yet. Add them on the Continuous or Discrete Materials page first.</p>
+                    @endif
+                    <div x-show="usesMaterials === '1' && !hasVariants" class="mt-3 rounded-lg bg-slate-50 p-3">
+                        <p class="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1.5">Each one takes</p>
+                        @include('inventory._made-from', ['list' => 'materials', 'field' => "'materials'", 'off' => '!(usesMaterials === \'1\' && !hasVariants)'])
+                    </div>
+                    <p x-show="usesMaterials === '1' && hasVariants" class="mt-2 text-xs text-slate-500">Add what each size takes under it, below.</p>
                 </div>
 
                 <div x-show="hasVariants" style="display:none;" class="border-t border-slate-100 pt-4">
@@ -359,8 +471,8 @@
                     {{-- "Low stock at" only counts for a product that keeps a stock count, so it shows only
                          then; its box is wide enough for the number (it was 51px and cut 15 to "1"). --}}
                     <div class="hidden md:grid md:grid-cols-12 gap-2 px-3 mb-1">
-                        <label class="md:col-span-4 text-[11px] font-medium text-slate-500 uppercase tracking-wide">Size / Variant</label>
-                        <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide" :class="trackInventory ? 'md:col-span-3' : 'md:col-span-5'">Variant SKU</label>
+                        <label class="md:col-span-3 text-[11px] font-medium text-slate-500 uppercase tracking-wide">Size / Variant</label>
+                        <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide" :class="trackInventory ? 'md:col-span-4' : 'md:col-span-6'">Variant SKU</label>
                         <label class="md:col-span-2 text-[11px] font-medium text-slate-500 uppercase tracking-wide">Price</label>
                         <label x-show="trackInventory" class="md:col-span-2 text-[11px] font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap" title="Warn when only this many are left">Low stock at</label>
                         <span class="md:col-span-1"></span>
@@ -369,14 +481,15 @@
                     <div class="space-y-2">
                         <template x-for="(row, i) in rows" :key="i">
                             <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-3 rounded-lg bg-slate-50">
-                                <div class="md:col-span-4">
+                                <div class="md:col-span-3">
                                     <label class="md:hidden text-[11px] font-medium text-slate-500 uppercase tracking-wide">Size / Variant</label>
-                                    <input type="text" :name="`variants[${i}][variant_name]`" x-model="row.name" placeholder="e.g. Medium (M)"
+                                    <input type="text" :name="`variants[${i}][variant_name]`" x-model="row.name" @input="sizeSku(row)" placeholder="e.g. Medium (M)"
                                         class="w-full text-sm rounded-lg border border-slate-300 px-3 py-2">
                                 </div>
-                                <div :class="trackInventory ? 'md:col-span-3' : 'md:col-span-5'">
+                                <div :class="trackInventory ? 'md:col-span-4' : 'md:col-span-6'">
                                     <label class="md:hidden text-[11px] font-medium text-slate-500 uppercase tracking-wide">Variant SKU</label>
-                                    <input type="text" :name="`variants[${i}][sku]`" x-model="row.sku" placeholder="e.g. TSHIRT-SUB-001-M"
+                                    <input type="text" :name="`variants[${i}][sku]`" x-model="row.sku" @input="typedSku(row)" maxlength="60" placeholder="From the size name"
+                                        title="Filled in from the product's SKU and the size name; you can change it"
                                         class="w-full text-sm rounded-lg border border-slate-300 px-3 py-2">
                                 </div>
                                 <div class="md:col-span-2">
@@ -397,46 +510,16 @@
                                     </button>
                                 </div>
 
-                                @if($materials->count())
-                                <div class="md:col-span-12 pt-2 mt-1 border-t border-slate-200">
+                                <div x-show="usesMaterials === '1'" class="md:col-span-12 pt-2 mt-1 border-t border-slate-200">
                                     <p class="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1.5">
-                                        Made from (optional — a shirt can use more than one, e.g. fabric AND ink)
+                                        Each <span x-text="row.name.trim() || 'one'"></span> takes <span class="normal-case font-normal tracking-normal">(a shirt can take more than one, e.g. fabric AND ink)</span>
                                     </p>
-                                    <div class="space-y-1.5">
-                                        <template x-for="(vm, j) in row.materials" :key="j">
-                                            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
-                                                <div class="md:col-span-7">
-                                                    <select :name="`variants[${i}][materials][${j}][material_id]`" x-model="vm.material_id"
-                                                        class="w-full text-xs rounded-lg border border-slate-300 bg-white px-2 py-1.5">
-                                                        <option value="">Select a material</option>
-                                                        @foreach($materials as $material)
-                                                            <option value="{{ $material->id }}">{{ $material->name }} ({{ $material->unit }})</option>
-                                                        @endforeach
-                                                    </select>
-                                                </div>
-                                                <div class="md:col-span-4">
-                                                    <input type="number" step="0.001" :name="`variants[${i}][materials][${j}][quantity_per_unit]`" x-model="vm.quantity_per_unit"
-                                                        placeholder="Qty used per unit, e.g. 1.2" class="w-full text-xs rounded-lg border border-slate-300 bg-white px-2 py-1.5">
-                                                </div>
-                                                <div class="md:col-span-1 flex justify-end">
-                                                    <button type="button" @click="row.materials.splice(j,1)" title="Remove this material"
-                                                        class="w-7 h-7 rounded-lg text-red-500 hover:bg-red-50 flex items-center justify-center">
-                                                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </div>
-                                    <button type="button" @click="row.materials.push({material_id:'',quantity_per_unit:''}); $nextTick(() => lucide.createIcons())"
-                                        class="mt-1.5 text-[11px] text-brand-600 font-medium flex items-center gap-1">
-                                        <i data-lucide="plus" class="w-3 h-3"></i> Add a material
-                                    </button>
+                                    @include('inventory._made-from', ['list' => 'row.materials', 'field' => '`variants[${i}][materials]`', 'off' => "usesMaterials !== '1'"])
                                 </div>
-                                @endif
                             </div>
                         </template>
                     </div>
-                    <button type="button" @click="rows.push({name:'',sku:'',price:'',threshold:5,materials:[]}); $nextTick(() => lucide.createIcons())"
+                    <button type="button" @click="addSize()"
                         class="mt-2 text-xs text-brand-600 font-medium flex items-center gap-1">
                         <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add a size
                     </button>

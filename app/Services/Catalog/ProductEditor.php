@@ -8,6 +8,7 @@ use App\Models\ProductVariant;
 use App\Models\SaleItem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -23,18 +24,40 @@ class ProductEditor
 
     // The Add Product form as sent. Sizes count only while "comes in different sizes" is ticked:
     // sizes added and then unticked were saved anyway, hidden from Products and Billing.
+    // Without sizes it still gets one, "Standard", as the catalog's one-size products have: a stock
+    // count and what it's made from are kept per size, so a product with none had neither.
+    // Running it again (approving a cashier's request) changes nothing.
     public function normalizeNew(array $input): array
     {
         if (! $this->bool($input['has_variants'] ?? false)) {
-            unset($input['variants']);
+            $standard = collect(is_array($input['variants'] ?? null) ? $input['variants'] : [])->first(fn ($v) => ! empty($v['standard']));
+            $input['variants'] = [$standard ?? [
+                'standard' => true,
+                'variant_name' => 'Standard',
+                'sku' => null,
+                'price' => null,
+                'low_stock_threshold' => $input['low_stock_threshold'] ?? null,
+                'materials' => is_array($input['materials'] ?? null) ? array_values($input['materials']) : [],
+            ]];
+        }
+        unset($input['materials'], $input['low_stock_threshold']);
+        $input = $this->blanksToNull($input);
+
+        // "No materials": lines left in the form don't count.
+        if ((string) ($input['uses_materials'] ?? '') === '0') {
+            foreach ($input['variants'] as $i => $v) {
+                $input['variants'][$i]['materials'] = [];
+            }
         }
 
-        return $this->blanksToNull($input);
+        return $this->withSkus($input);
     }
 
     public function validateNew(array $input): array
     {
         return Validator::make($input, [
+            // Always asked: what it's made from, or that it uses none (a service, a fee, a ready-made item).
+            'uses_materials' => 'required|in:0,1',
             'category_id' => ['nullable', Rule::exists('categories', 'id')->whereNull('archived_at')],
             'new_category_name' => ['nullable', 'string', 'max:100', 'regex:/[\pL\pN]/u'],
             'name' => 'required|string|max:150',
@@ -60,7 +83,9 @@ class ProductEditor
             'variants.*.sku.required' => 'Every size needs a SKU.',
             'variants.*.sku.distinct' => 'Two sizes have the same SKU.',
             'variants.*.sku.unique' => 'The SKU :input is already used by another size.',
-        ])->validate();
+            'uses_materials.required' => 'Say what it\'s made from: add its materials, or choose "No materials".',
+        ])->after(fn ($validator) => $this->checkRecipes($input['variants'] ?? [], $validator, (string) ($input['uses_materials'] ?? '') === '1'))
+            ->validate();
     }
 
     // All or nothing: a size that failed to save used to leave the product saved without it.
@@ -124,7 +149,17 @@ class ProductEditor
 
     public function normalizeChanges(array $input): array
     {
-        return $this->blanksToNull($input);
+        $input = $this->blanksToNull($input);
+        // A new size left without a SKU gets one made from the product's and its own name.
+        $taken = collect($input['variants'])->pluck('sku')->filter()->map(fn ($s) => strtoupper($s))->all();
+        foreach ($input['variants'] as $i => $v) {
+            if (empty($v['id']) && ! filled($v['sku'] ?? null) && filled($input['sku'] ?? null) && filled($v['variant_name'] ?? null)) {
+                $input['variants'][$i]['sku'] = $sku = $this->freeSku(ProductVariant::class, $this->joinSku($input['sku'], $this->skuCode($v['variant_name'])), $taken);
+                $taken[] = $sku;
+            }
+        }
+
+        return $input;
     }
 
     // The edit form, checked against the product as it is now. Throws ValidationException.
@@ -152,7 +187,8 @@ class ProductEditor
             'variants.*.variant_name.required' => 'Every size needs a name.',
             'variants.*.sku.required' => 'Every size needs a SKU.',
             'variants.*.sku.distinct' => 'Two sizes have the same SKU.',
-        ])->validate();
+        ])->after(fn ($validator) => $this->checkRecipes($input['variants'] ?? [], $validator, false))
+            ->validate();
 
         $existing = $product->variants()->get()->keyBy('id');
         $errors = [];
@@ -352,6 +388,115 @@ class ProductEditor
         }
 
         return $lines;
+    }
+
+    // ---------------------------------------------------------------- SKUs
+
+    // SKUs made from names, as the catalog's are: the category's prefix and the product's name
+    // ("CI-PHOTO-MUG"), and a size's from its product's ("CI-PHOTO-MUG-LARGE"). One already used
+    // gets -2, -3... The Add Product form suggests the same as it's typed.
+    // "Birthday/Debut" -> BIRTHDAY-DEBUT
+    public function skuCode(string $name): string
+    {
+        return Str::upper(Str::slug(str_replace('/', ' ', $name))) ?: 'ITEM';
+    }
+
+    // The start most of a category's SKUs share ("CI" in Customized Items), or none.
+    public function categoryPrefix($categoryId): ?string
+    {
+        if (! $categoryId) {
+            return null;
+        }
+        $skus = Product::where('category_id', $categoryId)->pluck('sku');
+        $firsts = $skus->map(fn ($sku) => str_contains((string) $sku, '-') ? strtoupper(strstr($sku, '-', true)) : null)->filter()->countBy();
+        if ($firsts->isEmpty()) {
+            return null;
+        }
+        $prefix = $firsts->sortDesc()->keys()->first();
+
+        return $firsts[$prefix] * 2 >= $skus->count() && preg_match('/^[A-Z]{1,5}$/', $prefix) ? $prefix : null;
+    }
+
+    // Blank SKUs on the Add Product form, made from the names.
+    private function withSkus(array $input): array
+    {
+        if (! filled($input['sku'] ?? null) && filled($input['name'] ?? null)) {
+            $prefix = filled($input['new_category_name'] ?? null) ? null : $this->categoryPrefix($input['category_id'] ?? null);
+            $input['sku'] = $this->freeSku(Product::class, $this->joinSku($prefix, $this->skuCode($input['name'])));
+        }
+        $taken = collect($input['variants'])->pluck('sku')->filter()->map(fn ($s) => strtoupper($s))->all();
+        foreach ($input['variants'] as $i => $v) {
+            if (! filled($v['sku'] ?? null) && filled($input['sku'] ?? null) && filled($v['variant_name'] ?? null)) {
+                $input['variants'][$i]['sku'] = $sku = $this->freeSku(ProductVariant::class, $this->joinSku($input['sku'], $this->skuCode($v['variant_name'])), $taken);
+                $taken[] = $sku;
+            }
+        }
+
+        return $input;
+    }
+
+    private function joinSku(?string ...$parts): string
+    {
+        return rtrim(Str::limit(implode('-', array_filter($parts, fn ($p) => filled($p))), 60, ''), '-');
+    }
+
+    // The SKU, or SKU-2, SKU-3... if a product or size (archived ones too) or the form already has it.
+    private function freeSku(string $model, string $sku, array $taken = []): string
+    {
+        $free = $sku;
+        for ($n = 2; in_array(strtoupper($free), $taken, true) || $model::where('sku', $free)->exists(); $n++) {
+            $free = rtrim(Str::limit($sku, 60 - strlen("-{$n}"), ''), '-') . "-{$n}";
+        }
+
+        return $free;
+    }
+
+    // ---------------------------------------------------------------- What a size is made from
+
+    // Each line: a material and how much one of the size takes. A counted (discrete) material is
+    // taken in whole pieces. With $required (Add Product, "it uses materials"), every size needs one.
+    private function checkRecipes(array $variants, $validator, bool $required): void
+    {
+        $ids = collect($variants)->flatMap(fn ($v) => collect(is_array($v['materials'] ?? null) ? $v['materials'] : [])->pluck('material_id'))->filter()->unique();
+        $materials = Material::whereIn('id', $ids)->get(['id', 'name', 'unit', 'inventory_type'])->keyBy('id');
+
+        foreach ($variants as $i => $v) {
+            if (! is_array($v) || ! empty($v['remove'])) {
+                continue;
+            }
+            $one = ! empty($v['standard']) ? 'each one' : 'each ' . ($v['variant_name'] ?? 'size');
+            $complete = 0;
+            foreach (is_array($v['materials'] ?? null) ? $v['materials'] : [] as $j => $line) {
+                $id = $line['material_id'] ?? null;
+                $qty = $line['quantity_per_unit'] ?? null;
+                if (! $id && ($qty === null || $qty === '')) {
+                    continue;   // an empty row
+                }
+                $at = "variants.{$i}.materials.{$j}";
+                if (! $id) {
+                    $validator->errors()->add("{$at}.material_id", "Pick the material for the amount {$qty} ({$one}).");
+                    continue;
+                }
+                $m = $materials->get((int) $id);
+                if (! $m) {
+                    continue;   // the exists rule says so
+                }
+                if (! is_numeric($qty) || (float) $qty <= 0) {
+                    $validator->errors()->add("{$at}.quantity_per_unit", "Enter how much {$m->name} {$one} uses.");
+                    continue;
+                }
+                if ($m->inventory_type !== 'continuous' && floor((float) $qty) != (float) $qty) {
+                    $validator->errors()->add("{$at}.quantity_per_unit", "{$m->name} is counted in pieces: enter a whole number for {$one}.");
+                    continue;
+                }
+                $complete++;
+            }
+            if ($required && $complete === 0) {
+                $validator->errors()->add("variants.{$i}.materials", ! empty($v['standard'])
+                    ? 'Add what it\'s made from, or choose "No materials".'
+                    : "Add what {$v['variant_name']} is made from, or choose \"No materials\".");
+            }
+        }
     }
 
     // ---------------------------------------------------------------- Helpers

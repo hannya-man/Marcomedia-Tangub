@@ -211,7 +211,7 @@ class ApprovalsTest extends TestCase
     private function newProduct(Material $blank): array
     {
         return [
-            'name' => 'Test Tumbler', 'sku' => 'TEST-TUMB', 'base_price' => 250, 'has_variants' => '1', 'track_inventory' => '1',
+            'name' => 'Test Tumbler', 'sku' => 'TEST-TUMB', 'base_price' => 250, 'has_variants' => '1', 'track_inventory' => '1', 'uses_materials' => '1',
             'variants' => [[
                 'variant_name' => '20oz', 'sku' => 'TEST-TUMB-20', 'price' => 250, 'low_stock_threshold' => 3,
                 'materials' => [['material_id' => $blank->id, 'quantity_per_unit' => 1]],
