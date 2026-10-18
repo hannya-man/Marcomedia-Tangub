@@ -13,6 +13,9 @@ use App\Http\Controllers\UserController;
 // Without this route, that lands on an undefined URL — this sends a guest
 // straight to login, and sends anyone already logged in to their home page.
 Route::get('/', function () {
+    // Only passes through: a message sent here (after logging in with a recovery code, or with a
+    // new password) is kept for the page it leads to, instead of being used up on the way.
+    session()->reflash();
     if (!auth()->check()) {
         return redirect()->route('login');
     }

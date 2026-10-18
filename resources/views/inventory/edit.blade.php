@@ -175,8 +175,9 @@
                                         <option value="{{ $m->id }}">{{ $m->name }}{{ $m->archived_at ? ' (archived)' : '' }}</option>
                                     @endforeach
                                 </select>
-                                <input type="number" step="0.001" min="0" x-model="line.quantity_per_unit" :name="`variants[${i}][materials][${j}][quantity_per_unit]`"
-                                    placeholder="Qty" aria-label="Amount for one" class="w-20 text-xs text-right rounded-lg border border-slate-300 bg-white px-2 py-1.5">
+                                {{-- A counted (discrete) material takes whole pieces --}}
+                                <input type="number" :step="counted[line.material_id] ? 1 : 0.001" :min="counted[line.material_id] ? 1 : 0" x-model="line.quantity_per_unit" :name="`variants[${i}][materials][${j}][quantity_per_unit]`"
+                                    :placeholder="counted[line.material_id] ? 'How many' : 'Qty'" aria-label="Amount for one" class="w-20 text-xs text-right rounded-lg border border-slate-300 bg-white px-2 py-1.5">
                                 <span class="w-14 text-xs text-slate-500 truncate" x-text="units[line.material_id] || ''"></span>
                                 <button type="button" @click="row.materials.splice(j, 1)" title="Remove this material" aria-label="Remove this material"
                                     class="w-7 h-7 flex-shrink-0 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center">
@@ -221,6 +222,7 @@ const productEditorData = @js([
     'rows' => $rows,
     'cutIds' => $cutIds,
     'units' => $materials->mapWithKeys(fn ($m) => [(string) $m->id => $m->unit]),
+    'counted' => $materials->mapWithKeys(fn ($m) => [(string) $m->id => $m->inventory_type !== 'continuous']),
     'sku' => old('sku', $product->sku),
     'basePrice' => old('base_price', (float) $product->base_price),
     'track' => (bool) old('track_inventory', $product->track_inventory),
@@ -234,6 +236,7 @@ function productEditor() {
         basePrice: d.basePrice,
         track: d.track,
         units: d.units,
+        counted: d.counted,
         // A size already saved keeps its SKU as typed; a new one gets one made from its name until typed in.
         rows: d.rows.map(r => ({
             ...r, uid: ++uid, skuTouched: true,

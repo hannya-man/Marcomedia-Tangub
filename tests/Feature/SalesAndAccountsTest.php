@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Inventory\BatchInventoryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Tests\Feature\Concerns\UsesTwoFactor;
 use Tests\TestCase;
 
@@ -42,6 +43,32 @@ class SalesAndAccountsTest extends TestCase
         $this->get('/register')->assertNotFound();
         $this->post('/register', ['name' => 'X', 'email' => 'x@example.com', 'password' => 'password1', 'password_confirmation' => 'password1'])->assertNotFound();
         $this->assertFalse(User::where('email', 'x@example.com')->exists());
+    }
+
+    // Nobody can log in and there's no email to reset it: the password is set again from the terminal.
+    public function test_a_forgotten_password_is_set_again_from_the_terminal(): void
+    {
+        $cashier = User::create(['name' => 'Ana', 'email' => 'ana@example.com', 'password' => bcrypt('old-password'), 'role' => 'cashier']);
+
+        $this->artisan('user:password')->expectsOutputToContain('ana@example.com')->assertExitCode(0);
+        $this->artisan('user:password', ['email' => 'ana@example.com'])
+            ->expectsQuestion('New password for Ana (at least 8 characters)', 'short')
+            ->assertExitCode(1);
+        $this->artisan('user:password', ['email' => 'ana@example.com'])
+            ->expectsQuestion('New password for Ana (at least 8 characters)', 'new-password-1')
+            ->expectsQuestion('Type it again', 'new-password-2')
+            ->expectsOutput('The two passwords are different. Nothing was changed.')
+            ->assertExitCode(1);
+        $this->assertTrue(Hash::check('old-password', $cashier->fresh()->password));
+
+        $this->artisan('user:password', ['email' => 'ana@example.com'])
+            ->expectsQuestion('New password for Ana (at least 8 characters)', 'new-password-1')
+            ->expectsQuestion('Type it again', 'new-password-1')
+            ->expectsOutputToContain('Password changed for Ana')
+            ->assertExitCode(0);
+
+        $this->post(route('login'), ['email' => 'ana@example.com', 'password' => 'new-password-1'])->assertRedirect();
+        $this->assertAuthenticatedAs($cashier->fresh());
     }
 
     public function test_staff_cant_delete_their_own_account(): void
@@ -127,13 +154,13 @@ class SalesAndAccountsTest extends TestCase
     public function test_a_product_added_without_a_stock_count_is_made_to_order(): void
     {
         $this->actingAs($this->owner)->post(route('inventory.store'), [
-            'name' => 'Test Plaque', 'sku' => 'TEST-PLAQUE', 'base_price' => 300, 'has_variants' => '1',
+            'name' => 'Test Plaque', 'sku' => 'TEST-PLAQUE', 'base_price' => 300, 'has_variants' => '1', 'uses_materials' => '0',
             'variants' => [['variant_name' => 'Standard', 'sku' => 'TEST-PLAQUE-STD']],
         ])->assertRedirect(route('inventory.index'));
         $this->assertFalse((bool) Product::where('sku', 'TEST-PLAQUE')->value('track_inventory'));
 
         $this->post(route('inventory.store'), [
-            'name' => 'Test Shirt', 'sku' => 'TEST-SHIRT', 'base_price' => 300, 'track_inventory' => '1',
+            'name' => 'Test Shirt', 'sku' => 'TEST-SHIRT', 'base_price' => 300, 'track_inventory' => '1', 'uses_materials' => '0',
         ]);
         $this->assertTrue((bool) Product::where('sku', 'TEST-SHIRT')->value('track_inventory'));
     }

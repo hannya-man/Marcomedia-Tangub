@@ -63,6 +63,8 @@ class EmailRecoveryTest extends TestCase
         $this->post(route('password.store'), $this->newPassword($user, $token))->assertRedirect('/');
         $this->assertAuthenticatedAs($user);
         $this->assertTrue(Hash::check('brand-new-pass', $user->fresh()->password));
+        $this->get('/')->assertRedirect(route('pos.index'));
+        $this->get(route('pos.index'))->assertSee('Your new password is saved.');
 
         // The link works once.
         Auth::logout();

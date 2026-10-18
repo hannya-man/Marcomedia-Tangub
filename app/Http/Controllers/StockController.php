@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Three of the four inventory types. All stock lives in batches (inventory_batches),
@@ -118,6 +119,9 @@ class StockController extends Controller
     // Add a material straight from its page. Stock already on hand becomes its first batch.
     public function store(Request $request)
     {
+        if (filled($request->input('name')) && ($taken = $this->nameTaken((string) $request->input('name')))) {
+            return back()->withInput()->with('error', $taken);
+        }
         if ($request->boolean('sheet')) {
             return $this->storeSheet($request);
         }
@@ -841,6 +845,23 @@ class StockController extends Controller
         } catch (InventoryException $e) {
             return back()->withInput()->with('error', $e->getMessage());
         }
+    }
+
+    // One material per name: with two "Keychain Blank"s, one got restocked while sales took from the
+    // other. Capitals and extra spaces don't make a different name.
+    private function nameTaken(string $name): ?string
+    {
+        $same = Material::whereNull('cut_from_id')
+            ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(Str::squish($name))])
+            ->first();
+        if (! $same) {
+            return null;
+        }
+
+        return $same->archived_at
+            ? "{$same->name} is already in the Material archive. Restore it there instead of adding it again."
+            : "There's already a material called {$same->name}"
+                . ($same->inventory_type ? ' on ' . $this->pageName($same->inventory_type) : '') . '. Restock that one instead.';
     }
 
     private function pageName(?string $type): string

@@ -45,10 +45,12 @@ class FormsAndSessionTest extends TestCase
         $this->assertFalse(Product::where('sku', 'TEST-MUG')->exists());
         $this->assertSame(1, DB::table('product_variants')->whereIn('sku', ['TEST-CAP-FREE', 'TEST-MUG-S'])->count());
 
+        // The form's data: @js writes its quotes as the escape u0022.
+        $q = '\\' . 'u0022';
         $page->assertSee("The product wasn't saved", false)
             ->assertSee('The SKU TEST-CAP-FREE is already used by another size.')
-            ->assertSee('addingProduct: true', false)
-            ->assertSee("name: 'Test Mug'", false)
+            ->assertSee("{$q}open{$q}:true", false)
+            ->assertSee("{$q}name{$q}:{$q}Test Mug{$q}", false)
             ->assertSee('TEST-MUG-S', false);
         // Said once: in the form, not again at the top of the page.
         $this->assertSame(1, substr_count($page->getContent(), 'is already used by another size.'));
@@ -61,9 +63,10 @@ class FormsAndSessionTest extends TestCase
             'variants' => [['variant_name' => 'Big', 'sku' => 'TEST-MUG-BIG']],
         ]))->assertSessionHas('success');
 
+        // It's one size: "Standard", as the catalog's one-size products are (Billing and Restock
+        // list a product's sizes).
         $mug = Product::where('sku', 'TEST-MUG')->firstOrFail();
-        $this->assertFalse($mug->has_variants);
-        $this->assertSame(0, $mug->variants()->count());
+        $this->assertSame([['Standard', 'TEST-MUG-STANDARD']], $mug->variants()->get()->map(fn ($v) => [$v->variant_name, $v->sku])->all());
     }
 
     public function test_ticking_sizes_without_adding_any_is_refused(): void
@@ -78,6 +81,7 @@ class FormsAndSessionTest extends TestCase
         $ink = Material::create(['name' => 'Test Ink ' . uniqid(), 'unit' => 'ml', 'inventory_type' => 'discrete', 'stock_quantity' => 0, 'low_stock_threshold' => 0]);
 
         $this->actingAs($this->owner)->post(route('inventory.store'), $this->addProduct([
+            'uses_materials' => '1',
             'variants' => [['variant_name' => 'Big', 'sku' => 'TEST-MUG-BIG', 'materials' => [
                 ['material_id' => $ink->id, 'quantity_per_unit' => 2], ['material_id' => $ink->id, 'quantity_per_unit' => 3], ['material_id' => '', 'quantity_per_unit' => ''],
             ]]],
@@ -137,12 +141,12 @@ class FormsAndSessionTest extends TestCase
 
     // ------------------------------------------------------------------
 
-    // Add Product as the page sends it: sizes ticked, a stock count kept, with $changes on top.
+    // Add Product as the page sends it: sizes ticked, a stock count kept, no materials, with $changes on top.
     private function addProduct(array $changes = []): array
     {
         return array_filter($changes + [
             '_form' => 'add-product', 'name' => 'Test Mug', 'sku' => 'TEST-MUG', 'base_price' => 150,
-            'track_inventory' => '1', 'has_variants' => '1',
+            'track_inventory' => '1', 'has_variants' => '1', 'uses_materials' => '0',
             'variants' => [['variant_name' => 'Standard', 'sku' => 'TEST-MUG-STD']],
         ], fn ($value) => $value !== null);
     }
