@@ -26,6 +26,11 @@ class SecurityTest extends TestCase
             ->assertHeader('Content-Security-Policy', "frame-ancestors 'none'")
             ->assertHeader('X-Content-Type-Options', 'nosniff')
             ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+        // A CORS preflight is answered before the routes, and still gets them.
+        $this->call('OPTIONS', '/sanctum/csrf-cookie', [], [], [], ['HTTP_ORIGIN' => 'https://example.com', 'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'GET'])
+            ->assertNoContent()
+            ->assertHeader('X-Frame-Options', 'DENY');
     }
 
     public function test_every_script_from_another_site_has_a_fixed_version_and_its_hash(): void
