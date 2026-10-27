@@ -36,10 +36,12 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    {{-- A fixed version: "latest" was fetched through a redirect on every page, and a new release
-         can rename icons. Chart.js loads on the dashboard only (its @push). --}}
-    <script src="https://unpkg.com/lucide@1.55.0/dist/umd/lucide.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    {{-- Fixed versions, each with its file's hash (integrity): the browser runs only that exact file,
+         so a hacked CDN or a bad new release can't read what's typed here. "3.x.x" ran whatever was
+         newest. A new version needs its new hash (here, guest, login, two-factor-challenge).
+         Chart.js loads on the dashboard only (its @push). --}}
+    <script src="https://unpkg.com/lucide@1.55.0/dist/umd/lucide.min.js" integrity="sha384-SZUFq9Dx112fyzY/iIBEjyd2gu3jY4XVhp+LUNXSpEMB2IEm/TOoMTNH4BHtQ6Hz" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js" integrity="sha384-5/joNqFnRyVWzXp99bHot6RHG+EksGp+USSgZwPar7T9SD9PKKER37n/8bXBAZGd" crossorigin="anonymous" defer></script>
     <script>
         // Just logged in: this page starts under the brand screen the login page faded in
         // (partials/auth-splash), and fades it away. The usual page transition is skipped then,

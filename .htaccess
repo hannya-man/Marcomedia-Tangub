@@ -1,0 +1,4 @@
+# XAMPP's Apache serves everything under htdocs to the whole network, and this folder holds .env
+# (app key, database login), storage/logs and vendor's PHP files. The app runs on Herd's PHP
+# (start-local.bat) or on Vercel, never through this Apache, so it gets nothing from here.
+Require all denied

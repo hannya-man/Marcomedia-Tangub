@@ -14,6 +14,7 @@ namespace Symfony\Component\ErrorHandler;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 use Symfony\Component\ErrorHandler\Error\FatalError;
+use Symfony\Component\ErrorHandler\Error\MaxExecutionTimeError;
 use Symfony\Component\ErrorHandler\Error\OutOfMemoryError;
 use Symfony\Component\ErrorHandler\ErrorEnhancer\ClassNotFoundErrorEnhancer;
 use Symfony\Component\ErrorHandler\ErrorEnhancer\ErrorEnhancerInterface;
@@ -145,6 +146,11 @@ class ErrorHandler
                 $prev[0]->setExceptionHandler($p);
             }
         } else {
+            if (!$handlerIsRegistered && null === $prev) {
+                // another error handler is in charge and there is no exception handler to decorate
+                restore_exception_handler();
+            }
+
             $handler->setExceptionHandler($prev ?? [$handler, 'renderException']);
         }
 
@@ -155,6 +161,8 @@ class ErrorHandler
 
     /**
      * Calls a function and turns any PHP error into \ErrorException.
+     *
+     * @param-immediately-invoked-callable $function
      *
      * @throws \ErrorException When $function(...$arguments) triggers a PHP error
      */
@@ -473,6 +481,7 @@ class ErrorHandler
     public function handleException(\Throwable $exception): void
     {
         $handlerException = null;
+        $loggerFailed = false;
 
         if (!$exception instanceof FatalError) {
             self::$exitCode = 255;
@@ -500,6 +509,7 @@ class ErrorHandler
             try {
                 $this->loggers[$type][0]->log($this->loggers[$type][1], $message, ['exception' => $exception]);
             } catch (\Throwable $handlerException) {
+                $loggerFailed = true;
             }
         }
 
@@ -527,7 +537,8 @@ class ErrorHandler
         }
 
         $loggedErrors = $this->loggedErrors;
-        if ($exception === $handlerException) {
+        if ($exception === $handlerException || $loggerFailed) {
+            // the logger for that type is what threw, so calling it again would recurse forever
             $this->loggedErrors &= ~$type;
         }
 
@@ -596,10 +607,13 @@ class ErrorHandler
         if ($error && $error['type'] &= \E_PARSE | \E_ERROR | \E_CORE_ERROR | \E_COMPILE_ERROR) {
             // Let's not throw anymore but keep logging
             $handler->throwAt(0, true);
-            $trace = $error['backtrace'] ?? null;
+            // "trace" is set by PHP >= 8.5 when fatal_error_backtraces is enabled
+            $trace = $error['trace'] ?? null;
 
             if (str_starts_with($error['message'], 'Allowed memory') || str_starts_with($error['message'], 'Out of memory')) {
                 $fatalError = new OutOfMemoryError($handler->levels[$error['type']].': '.$error['message'], 0, $error, 2, false, $trace);
+            } elseif (str_starts_with($error['message'], 'Maximum execution time of')) {
+                $fatalError = new MaxExecutionTimeError($handler->levels[$error['type']].': '.$error['message'], 0, $error, 2, false, $trace);
             } else {
                 $fatalError = new FatalError($handler->levels[$error['type']].': '.$error['message'], 0, $error, 2, true, $trace);
             }
@@ -631,22 +645,22 @@ class ErrorHandler
     {
         $renderer = \in_array(\PHP_SAPI, ['cli', 'phpdbg', 'embed'], true) ? new CliErrorRenderer() : new HtmlErrorRenderer($this->debug);
 
-        $exception = $renderer->render($exception);
+        $flattenedException = $renderer->render($exception);
 
-        if (!headers_sent()) {
-            http_response_code($exception->getStatusCode());
+        if (!headers_sent() && !$exception instanceof OutOfMemoryError && !$exception instanceof MaxExecutionTimeError) {
+            http_response_code($flattenedException->getStatusCode());
 
-            foreach ($exception->getHeaders() as $name => $value) {
+            foreach ($flattenedException->getHeaders() as $name => $value) {
                 header($name.': '.$value, false);
             }
         }
 
-        echo $exception->getAsString();
+        echo $flattenedException->getAsString();
     }
 
     public function enhanceError(\Throwable $exception): \Throwable
     {
-        if ($exception instanceof OutOfMemoryError) {
+        if ($exception instanceof OutOfMemoryError || $exception instanceof MaxExecutionTimeError) {
             return $exception;
         }
 

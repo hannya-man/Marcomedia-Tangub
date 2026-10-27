@@ -26,6 +26,11 @@ class ShiftController extends Controller
     {
         $validated = $request->validate(['actual_cash' => 'required|numeric|min:0']);
 
+        // Your own shift only (an owner may close anyone's): the refusal below shows the shift's
+        // expected cash, which told another cashier the exact amount to type.
+        if ((int) $shift->user_id !== (int) $request->user()->id && ! $request->user()->isAdmin()) {
+            abort(403);
+        }
         if ($shift->status !== 'open') {
             return back()->with('error', 'This shift is already closed.');
         }
