@@ -186,6 +186,8 @@ class PdoSessionHandler extends AbstractSessionHandler
 
     /**
      * Adds the Table to the Schema if it doesn't exist.
+     *
+     * @param-immediately-invoked-callable $isSameDatabase
      */
     public function configureSchema(Schema $schema, ?\Closure $isSameDatabase = null): Schema
     {
@@ -359,7 +361,7 @@ class PdoSessionHandler extends AbstractSessionHandler
         return parent::open($savePath, $sessionName);
     }
 
-    public function read(#[\SensitiveParameter] string $sessionId): string
+    public function read(#[\SensitiveParameter] string $sessionId): string|false
     {
         try {
             return parent::read($sessionId);

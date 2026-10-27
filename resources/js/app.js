@@ -1,4 +1,4 @@
-import './bootstrap';
+// No axios: nothing used it (pages call fetch()), and it shipped known bugs to every browser.
 
 // NOTE: Alpine.js, Chart.js, and Lucide icons are intentionally loaded via
 // CDN <script> tags directly in layouts/app.blade.php and auth/login.blade.php,

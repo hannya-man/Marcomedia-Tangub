@@ -228,7 +228,7 @@ abstract class HasOneOrManyThrough extends Relation
      */
     public function firstOrNew(array $attributes = [], array $values = [])
     {
-        if (! is_null($instance = $this->where($attributes)->first())) {
+        if (! is_null($instance = $this->where($this->qualifyRelatedAttributes($attributes))->first())) {
             return $instance;
         }
 
@@ -244,7 +244,7 @@ abstract class HasOneOrManyThrough extends Relation
      */
     public function firstOrCreate(array $attributes = [], Closure|array $values = [])
     {
-        if (! is_null($instance = (clone $this)->where($attributes)->first())) {
+        if (! is_null($instance = (clone $this)->where($this->qualifyRelatedAttributes($attributes))->first())) {
             return $instance;
         }
 
@@ -265,8 +265,42 @@ abstract class HasOneOrManyThrough extends Relation
         try {
             return $this->getQuery()->withSavepointIfNeeded(fn () => $this->create(array_merge($attributes, value($values))));
         } catch (UniqueConstraintViolationException $exception) {
-            return $this->where($attributes)->first() ?? throw $exception;
+            return $this->where($this->qualifyRelatedAttributes($attributes))->first() ?? throw $exception;
         }
+    }
+
+    /**
+     * Get the first record matching the attributes, including trashed records, and restore it. If the record is not found, create it.
+     *
+     * @param  array  $attributes
+     * @param  (\Closure(): array)|array  $values
+     * @return TRelatedModel
+     */
+    public function restoreOrCreate(array $attributes = [], Closure|array $values = [])
+    {
+        $this->withTrashed();
+
+        return tap($this->firstOrCreate($attributes, $values), function ($instance) {
+            $instance->restore();
+        });
+    }
+
+    /**
+     * Attempt to create the record. If a unique constraint violation occurs, find the matching record, including trashed records, and restore it.
+     *
+     * @param  array  $attributes
+     * @param  (\Closure(): array)|array  $values
+     * @return TRelatedModel
+     *
+     * @throws \Illuminate\Database\UniqueConstraintViolationException
+     */
+    public function createOrRestore(array $attributes = [], Closure|array $values = [])
+    {
+        $this->withTrashed();
+
+        return tap($this->createOrFirst($attributes, $values), function ($instance) {
+            $instance->restore();
+        });
     }
 
     /**
@@ -281,6 +315,38 @@ abstract class HasOneOrManyThrough extends Relation
         return tap($this->firstOrCreate($attributes, $values), function ($instance) use ($values) {
             if (! $instance->wasRecentlyCreated) {
                 $instance->fill($values)->save();
+            }
+        });
+    }
+
+    /**
+     * Qualify the given attribute keys with the related model's table.
+     *
+     * @param  array  $attributes
+     * @return array
+     */
+    protected function qualifyRelatedAttributes(array $attributes)
+    {
+        return (new BaseCollection($attributes))
+            ->mapWithKeys(fn ($value, $key) => [$this->related->qualifyColumn($key) => $value])
+            ->all();
+    }
+
+    /**
+     * Create a related record matching the attributes, or increment the existing record.
+     *
+     * @param  array  $attributes
+     * @param  string  $column
+     * @param  int|float  $default
+     * @param  int|float  $step
+     * @param  array  $extra
+     * @return TRelatedModel
+     */
+    public function incrementOrCreate(array $attributes, string $column = 'count', $default = 1, $step = 1, array $extra = [])
+    {
+        return tap($this->firstOrCreate($attributes, array_merge($extra, [$column => $default])), function ($instance) use ($column, $step, $extra) {
+            if (! $instance->wasRecentlyCreated) {
+                $instance->increment($column, $step, $extra);
             }
         });
     }
