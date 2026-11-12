@@ -336,6 +336,16 @@ class StockController extends Controller
             return $blocked;
         }
 
+        // Counted pieces (cards, mug blanks) left in the pack in use are still good: they're used
+        // first, and the next pack opens by itself when they run out. Starting it early threw them
+        // away. Pieces really gone are taken off with Report damage or Fix count.
+        $inUse = InventoryBatch::where('material_id', $material->id)->where('status', 'open')->first();
+        if ($material->inventory_type !== 'continuous' && ! $material->isSheet() && $inUse && (float) $inUse->remaining_quantity > 0.0005) {
+            $left = StockAlertService::formatQty($inUse->remaining_quantity);
+
+            return back()->with('error', "The pack of {$material->name} in use still has {$left} {$material->unit}. Those are used first, and the next pack opens by itself when they run out. If some are damaged or missing, use Report damage or Fix count.");
+        }
+
         $data = $request->validate(['write_off_reason' => 'nullable|string|max:255']);
 
         $next = InventoryBatch::where('material_id', $material->id)->where('status', 'unopened')

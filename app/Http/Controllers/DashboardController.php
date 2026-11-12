@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Material;
 use App\Models\Sale;
+use App\Models\Shift;
 use App\Models\SaleItem;
 use App\Models\ProductVariant;
 use Illuminate\Support\Facades\DB;
@@ -135,10 +136,17 @@ class DashboardController extends Controller
             'yearly' => ['labels' => $yearlyLabels, 'data' => $yearlyData],
         ];
 
+        // Money still owed on down payments, and who is working now.
+        $owing = Sale::owing()->selectRaw('COUNT(*) as count, COALESCE(SUM(total_amount - amount_paid), 0) as owed')->first();
+        $owed = (float) $owing->owed;
+        $owingSales = (int) $owing->count;
+        $onShift = Shift::with('user')->where('status', 'open')->orderBy('opened_at')->get();
+
         return view('dashboard.index', compact(
             'todaySales', 'todayTransactions', 'monthSales',
             'lowStockVariants', 'outOfStockCount', 'lowStockCount', 'totalStockItems',
             'salesTrend', 'topMovers', 'slowMovers', 'recentSales', 'recentMovements', 'chartSets',
+            'owed', 'owingSales', 'onShift',
         ));
     }
 }

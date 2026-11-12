@@ -7,7 +7,7 @@
 @endpush
 
 @section('content')
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
     <div class="bg-white rounded-xl border border-slate-200 p-5">
         <div class="flex items-center justify-between mb-2">
             <p class="text-xs text-slate-500 uppercase tracking-wide">Today's Sales</p>
@@ -33,6 +33,15 @@
             {{ $lowStockCount }} low · {{ $outOfStockCount }} out
         </p>
         <p class="text-xs text-slate-400 mt-1">Of {{ $totalStockItems }} materials and stocked items</p>
+    </a>
+    {{-- Down payments not paid off yet (utang) --}}
+    <a href="{{ route('customers.index') }}" class="block bg-white rounded-xl border border-slate-200 p-5 hover:border-brand-400 transition-colors">
+        <div class="flex items-center justify-between mb-2">
+            <p class="text-xs text-slate-500 uppercase tracking-wide">Owed to You</p>
+            <i data-lucide="wallet" class="w-4 h-4 text-brand-500"></i>
+        </div>
+        <p class="text-2xl font-semibold {{ $owed > 0 ? 'text-amber-600' : 'text-ink' }}">₱{{ number_format($owed, 2) }}</p>
+        <p class="text-xs text-slate-400 mt-1">{{ $owingSales }} {{ $owingSales === 1 ? 'sale' : 'sales' }} with a balance</p>
     </a>
 </div>
 
@@ -81,6 +90,23 @@
         <div class="bg-ink rounded-xl p-5 text-center text-white">
             <p id="liveClock" class="text-3xl font-semibold tracking-wider">00:00:00</p>
             <p class="text-xs text-slate-400 uppercase tracking-wider mt-2">{{ now()->format('l, F j Y') }}</p>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <p class="font-medium text-ink">On Shift Now</p>
+                <a href="{{ route('shifts.index') }}" class="text-xs text-brand-600 hover:underline">All shifts →</a>
+            </div>
+            <div class="space-y-2">
+                @forelse($onShift as $shift)
+                    <a href="{{ route('shifts.show', $shift) }}" class="flex items-center justify-between gap-3 text-sm hover:text-brand-600">
+                        <span class="flex items-center gap-2 text-ink"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>{{ $shift->user->name ?? '-' }}</span>
+                        <span class="text-xs text-slate-400">since {{ $shift->opened_at->isToday() ? $shift->opened_at->format('h:i A') : $shift->opened_at->format('M j, h:i A') }}</span>
+                    </a>
+                @empty
+                    <p class="text-sm text-slate-400">Nobody has started a shift.</p>
+                @endforelse
+            </div>
         </div>
 
         <div class="bg-white rounded-xl border border-slate-200 p-5">

@@ -5,7 +5,7 @@ use Illuminate\Database\Eloquent\Model;
 class Sale extends Model
 {
     protected $fillable = [
-        'invoice_number', 'customer_id', 'user_id', 'subtotal', 'discount_amount',
+        'invoice_number', 'customer_id', 'user_id', 'shift_id', 'subtotal', 'discount_amount',
         'tax_amount', 'total_amount', 'amount_paid', 'change_amount',
         'payment_method', 'status', 'notes', 'archived_at', 'archived_from',
     ];
@@ -16,7 +16,17 @@ class Sale extends Model
 
     public function customer() { return $this->belongsTo(Customer::class); }
     public function user() { return $this->belongsTo(User::class)->withTrashed(); }
+    public function shift() { return $this->belongsTo(Shift::class); }
     public function items() { return $this->hasMany(SaleItem::class); }
+    // amount_paid is the running total; these are the payments behind it (App\Services\Sales\SalePayments).
+    public function payments() { return $this->hasMany(SalePayment::class)->orderBy('id'); }
+
+    // Still owed: part-paid, and not voided or archived.
+    public function scopeOwing($query)
+    {
+        return $query->whereIn('sales.status', ['pending', 'processing', 'completed'])
+            ->whereColumn('sales.amount_paid', '<', 'sales.total_amount');
+    }
 
     // Lines sold while out of stock that are still waiting for it (BackorderService).
     public function itemsOnOrder()

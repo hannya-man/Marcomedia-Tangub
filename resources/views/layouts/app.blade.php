@@ -24,15 +24,17 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="icon" href="/icons/icon-192.png">
     <script>
+        // The dark look, if chosen in this browser (the moon button), before anything is drawn.
+        try { if (localStorage.getItem('marcomedia-theme') === 'dark') document.documentElement.classList.add('dark'); } catch (e) {}
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
         }
     </script>
 
-    {{-- Compiled Tailwind (via Vite) — replaces the old cdn.tailwindcss.com
+    {{-- Compiled Tailwind (npm run build) — replaces the old cdn.tailwindcss.com
          script, which recompiled styles in the browser on every single page
          load and caused a visible "unstyled/broken" flash on navigation. --}}
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <link rel="stylesheet" href="{{ asset('css/app.css') }}">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -171,17 +173,25 @@
             <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('dashboard') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
                 <i data-lucide="layout-dashboard" class="w-4 h-4"></i><span>Dashboard</span>
             </a>
+            <a href="{{ route('reports.sales') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('reports.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="bar-chart-3" class="w-4 h-4"></i><span>Sales Report</span>
+            </a>
             @endif
 
             @if(in_array(auth()->user()->role, ['admin', 'cashier']))
             <p class="px-3 pb-1 pt-4 text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Operations</p>
-            <a href="{{ route('pos.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('pos.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+            <a href="{{ route('pos.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('pos.index') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
                 <i data-lucide="scan-line" class="w-4 h-4"></i><span>Billing / POS</span>
             </a>
             @endif
             @if(in_array(auth()->user()->role, ['admin', 'cashier']))
-            <a href="{{ route('sales.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('sales.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+            {{-- A sale's own page (pos.receipt) belongs with Sales --}}
+            <a href="{{ route('sales.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('sales.*', 'pos.receipt') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
                 <i data-lucide="banknote" class="w-4 h-4"></i><span>Sales</span>
+            </a>
+            {{-- Who still owes on a down payment (utang) --}}
+            <a href="{{ route('customers.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('customers.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="wallet" class="w-4 h-4"></i><span>Balances (utang)</span>
             </a>
             @endif
             @if(auth()->user()->role === 'cashier')
@@ -216,6 +226,15 @@
             <a href="{{ route('approvals.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('approvals.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
                 <i data-lucide="inbox" class="w-4 h-4"></i><span class="flex-1">Approvals</span>
                 @if($approvalCount)<span class="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-semibold flex items-center justify-center" title="Waiting for you">{{ $approvalCount }}</span>@endif
+            </a>
+            <a href="{{ route('shifts.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('shifts.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="clock" class="w-4 h-4"></i><span>Shifts</span>
+            </a>
+            <a href="{{ route('returns.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('returns.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="undo-2" class="w-4 h-4"></i><span>Returns</span>
+            </a>
+            <a href="{{ route('activity.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('activity.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
+                <i data-lucide="shield-check" class="w-4 h-4"></i><span>Activity Log</span>
             </a>
             <a href="{{ route('users.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('users.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
                 <i data-lucide="users" class="w-4 h-4"></i><span>User Management</span>
@@ -275,6 +294,14 @@
                         {{ $approvalCount }}<span class="hidden sm:inline">{{ $isOwnerNav ? ' to approve' : ($approvalCount === 1 ? ' new answer' : ' new answers') }}</span>
                     </a>
                 @endif
+                {{-- Light or dark look, remembered in this browser --}}
+                <button type="button" x-data="{ dark: document.documentElement.classList.contains('dark') }"
+                    @click="dark = !dark; document.documentElement.classList.toggle('dark', dark); try { localStorage.setItem('marcomedia-theme', dark ? 'dark' : 'light') } catch (e) {}"
+                    :title="dark ? 'Switch to the light look' : 'Switch to the dark look'" :aria-label="dark ? 'Switch to the light look' : 'Switch to the dark look'"
+                    class="w-9 h-9 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100">
+                    <i data-lucide="moon" class="w-4 h-4" x-show="!dark"></i>
+                    <i data-lucide="sun" class="w-4 h-4" x-show="dark" style="display:none;"></i>
+                </button>
                 {{-- Profile / Logout. The sidebar's user menu has the same two actions. --}}
                 <div class="relative" x-data="{ menuOpen: false }">
                     <button @click="menuOpen = !menuOpen" @click.outside="menuOpen = false"
@@ -306,6 +333,12 @@
         @if (session('success'))
             <div class="mx-8 mt-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 text-sm">
                 {{ session('success') }}
+            </div>
+        @endif
+        @if (session('warning'))
+            <div class="mx-8 mt-4 flex items-center gap-3 rounded-lg bg-amber-100 border border-amber-400 text-amber-700 px-4 py-3 text-sm">
+                <i data-lucide="alert-triangle" class="w-4 h-4 flex-shrink-0"></i>
+                <span>{{ session('warning') }}</span>
             </div>
         @endif
         @if (session('error'))

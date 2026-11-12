@@ -2,7 +2,7 @@
     "$schema": "https://openapi.vercel.sh/vercel.json",
     "framework": null,
     "installCommand": "echo \"Composer packages are installed by the PHP runtime\"",
-    "buildCommand": "echo \"CSS and JS are already built in public/build (npm run build)\"",
+    "buildCommand": "echo \"The CSS is already built in public/css (npm run build)\"",
     "outputDirectory": "public",
     "regions": ["bom1"],
     "functions": {
@@ -12,8 +12,7 @@
         }
     },
     "routes": [
-        { "src": "/build/(.*)", "headers": { "cache-control": "public, max-age=31536000, immutable" }, "dest": "/build/$1" },
-        { "src": "/(images|icons)/(.*)", "dest": "/$1/$2" },
+        { "src": "/(css|images|icons)/(.*)", "dest": "/$1/$2" },
         { "src": "/(favicon\\.ico|robots\\.txt|manifest\\.json|sw\\.js)", "dest": "/$1" },
         { "src": "/(.*)", "dest": "/api/index.php" }
     ]

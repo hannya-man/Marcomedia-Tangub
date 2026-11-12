@@ -76,10 +76,16 @@
                         'status' => $sale->status,
                         'balance' => $balance,
                         'update_url' => route('sales.update', $sale),
+                        'pay_url' => route('pos.receipt', $sale) . '#pay',
                     ];
+                    // Every way it was paid so far: the counter payment and any after it.
+                    $methods = $sale->payments->map->methodLabel()->unique()->implode(', ')
+                        ?: ($sale->payment_method === 'gcash' ? 'GCash' : ucfirst($sale->payment_method));
                 @endphp
                 <tr class="border-b border-slate-50">
-                    <td class="p-4 font-medium text-ink whitespace-nowrap">{{ $sale->invoice_number }}</td>
+                    <td class="p-4 font-medium text-ink whitespace-nowrap">
+                        <a href="{{ route('pos.receipt', $sale) }}" class="hover:text-brand-600 hover:underline" title="Open the sale: its receipt and every payment on it">{{ $sale->invoice_number }}</a>
+                    </td>
                     <td class="px-2">
                         {{ $sale->customer->name ?? 'Walk-in' }}
                         @if($sale->customer?->phone)
@@ -105,7 +111,12 @@
                             <span class="block text-xs font-medium text-amber-600">₱{{ number_format($balance, 2) }} due</span>
                         @endif
                     </td>
-                    <td class="px-2 capitalize">{{ $sale->payment_method === 'gcash' ? 'GCash' : str_replace('_',' ',$sale->payment_method) }}</td>
+                    <td class="px-2">
+                        {{ $methods }}
+                        @if($sale->payments->count() > 1)
+                            <span class="block text-xs text-slate-400">{{ $sale->payments->count() }} payments</span>
+                        @endif
+                    </td>
                     <td class="px-2">
                         <span class="px-2 py-1 rounded-full text-xs font-medium {{ $badge }}">{{ ucfirst($sale->status) }}</span>
                         @if(isset($voidRequested[$sale->id]))
@@ -134,7 +145,14 @@
                                     <i data-lucide="package-check" class="w-4 h-4"></i>
                                 </button>
                             </form>
-                            @elseif($sale->status === 'processing')
+                            @endif
+                            @if($balance > 0 && $open)
+                            {{-- The balance is paid on the sale's page, where each payment is kept --}}
+                            <a href="{{ route('pos.receipt', $sale) }}#pay" title="Record a payment on the ₱{{ number_format($balance, 2) }} still owed" aria-label="Record payment"
+                                class="{{ $iconBtn }} bg-amber-50 text-amber-700 hover:bg-amber-100">
+                                <i data-lucide="wallet" class="w-4 h-4"></i>
+                            </a>
+                            @elseif(! $onOrder && $sale->status === 'processing')
                             <form method="POST" action="{{ route('sales.complete', $sale) }}">
                                 @csrf
                                 <button title="Mark completed" aria-label="Mark completed"
@@ -222,13 +240,10 @@
                         @endif
                     </select>
                 </div>
-                <div x-show="editingSale.balance > 0">
-                    <label class="text-xs font-medium text-slate-600">
-                        Record additional payment <span class="text-slate-400">(balance: ₱<span x-text="Number(editingSale.balance).toFixed(2)"></span>)</span>
-                    </label>
-                    <input type="number" name="additional_payment" step="0.01" min="0" placeholder="0.00"
-                           class="mt-1 w-full text-sm rounded-lg border border-slate-300 bg-white px-3 py-2">
-                </div>
+                <p x-show="editingSale.balance > 0" class="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                    ₱<span x-text="Number(editingSale.balance).toFixed(2)"></span> still owed.
+                    <a :href="editingSale.pay_url" class="font-medium underline">Record a payment</a> on the sale's page, where each payment is kept.
+                </p>
                 <div class="flex justify-end gap-2 pt-2">
                     <button type="button" @click="editingSale = null" class="text-sm text-slate-500 px-4 py-2">Cancel</button>
                     <button type="submit" class="bg-brand-600 text-white text-sm rounded-lg px-5 py-2">Save Changes</button>

@@ -118,9 +118,11 @@ class SalesAndAccountsTest extends TestCase
         $this->patch(route('sales.update', $sale), ['status' => 'completed'])->assertSessionHas('error');
         $this->assertSame('pending', $sale->fresh()->status);
 
-        // Paying the rest and completing in one go completes it (it used to stop at processing).
-        $this->patch(route('sales.update', $sale), ['status' => 'completed', 'additional_payment' => 100])->assertSessionHas('success');
-        $this->assertSame(['completed', 150.0], [$sale->fresh()->status, (float) $sale->fresh()->amount_paid]);
+        // Paying the rest (on the sale's page) makes it processing; then it can be completed.
+        $this->post(route('sales.payments.store', $sale), ['amount' => 100, 'method' => 'cash'])->assertSessionHas('success');
+        $this->assertSame(['processing', 150.0], [$sale->fresh()->status, (float) $sale->fresh()->amount_paid]);
+        $this->patch(route('sales.update', $sale), ['status' => 'completed'])->assertSessionHas('success');
+        $this->assertSame('completed', $sale->fresh()->status);
     }
 
     public function test_the_archive_is_the_owners_and_restore_keeps_what_the_sale_was(): void
@@ -218,13 +220,13 @@ class SalesAndAccountsTest extends TestCase
         return [$mug, $type, $blank];
     }
 
-    // One mug rung up by the cashier at P150, paid $paid.
+    // One mug rung up by the cashier at P150, paid $paid. A down payment names the customer.
     private function sell(Product $mug, ProductVariant $type, float $paid = 150): Sale
     {
         $this->actingAs($this->cashier)->post(route('pos.store'), [
             'items' => [['product_id' => $mug->id, 'product_variant_id' => $type->id, 'quantity' => 1, 'unit_price' => 150]],
             'payment_method' => 'cash', 'amount_paid' => $paid,
-        ])->assertSessionHas('success');
+        ] + ($paid < 150 ? ['new_customer_name' => 'Ana'] : []))->assertSessionHas('success');
 
         return Sale::latest('id')->firstOrFail();
     }

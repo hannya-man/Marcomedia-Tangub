@@ -225,6 +225,34 @@ class BackorderTest extends TestCase
         $this->assertSame(4, $size->fresh()->stock_quantity);
     }
 
+    public function test_selling_the_last_ones_warns_and_stock_never_goes_below_zero(): void
+    {
+        $shirt = $this->item('Test Shirt', true);
+        $size = $shirt->variants()->create(['variant_name' => 'Medium', 'sku' => uniqid('V'), 'stock_quantity' => 2, 'status' => 'active']);
+
+        $this->post(route('pos.store'), $this->sale($shirt, $size, 2))
+            ->assertSessionHas('warning', fn ($warning) => str_contains($warning, 'Now out of stock: Test Shirt (Medium)'));
+        $this->assertSame(0, $size->fresh()->stock_quantity);
+
+        // Sold again at 0: it goes on order, the stock stays at 0, and the warning isn't repeated.
+        $this->post(route('pos.store'), $this->sale($shirt, $size, 3))->assertSessionMissing('warning');
+        $this->assertSame(0, $size->fresh()->stock_quantity);
+    }
+
+    public function test_the_products_page_shows_how_many_wait_on_order_until_the_stock_comes_in(): void
+    {
+        $shirt = $this->item('Test Shirt', true);
+        $size = $shirt->variants()->create(['variant_name' => 'Medium', 'sku' => uniqid('V'), 'stock_quantity' => 0, 'status' => 'active']);
+        $this->sell($shirt, $size, 3);
+
+        $this->get(route('inventory.index', ['search' => 'Test Shirt']))->assertOk()->assertSee('3 on order');
+
+        $this->post(route('inventory.adjust', $size), ['type' => 'stock_in', 'quantity' => 5])
+            ->assertSessionHas('success', fn ($message) => str_contains($message, 'took its stock automatically'));
+        $this->assertSame(2, $size->fresh()->stock_quantity);
+        $this->get(route('inventory.index', ['search' => 'Test Shirt']))->assertOk()->assertDontSee('3 on order');
+    }
+
     public function test_the_sintra_board_and_tarpaulin_price_lists(): void
     {
         $this->assertSame([

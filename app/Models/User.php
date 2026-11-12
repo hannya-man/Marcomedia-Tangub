@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable
 {
@@ -60,5 +63,18 @@ class User extends Authenticatable
     public function hasTwoFactor(): bool
     {
         return $this->two_factor_confirmed_at !== null && $this->two_factor_secret !== null;
+    }
+
+    // A new password (set by email link, by the owner, or in Profile). Whoever knew the old one may
+    // still be logged in, so every other login of this account ends: other browsers' sessions (kept in
+    // the database, on Vercel) and every "Remember me".
+    public function changePassword(string $password): void
+    {
+        $this->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
+
+        if (config('session.driver') === 'database') {
+            DB::table(config('session.table', 'sessions'))->where('user_id', $this->id)
+                ->where('id', '!=', session()->getId())->delete();
+        }
     }
 }

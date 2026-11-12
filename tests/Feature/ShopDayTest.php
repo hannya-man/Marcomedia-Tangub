@@ -132,6 +132,10 @@ class ShopDayTest extends TestCase
         $this->check('mark damaged', $this->post(route('inventory.mark-damaged', $kcSize), ['quantity' => 1, 'remarks' => 'Scratched']));
         $this->check('mark more damaged than in stock', $this->post(route('inventory.mark-damaged', $kcSize), ['quantity' => 999]), true);
 
+        // A shift around the sales, ended with a cash count that's off.
+        $this->check('start a shift', $this->post(route('shifts.open'), ['opening_cash' => 500]));
+        $this->check('start a second shift', $this->post(route('shifts.open')), true);
+
         // Sales: paid in full, a down payment paid off later, one out of stock, a void request.
         $sell = fn ($size, $product, $qty, $paid, $price) => $this->post(route('pos.store'), [
             'items' => [['product_id' => $product->id, 'product_variant_id' => $size->id, 'quantity' => $qty, 'unit_price' => $price]],
@@ -142,7 +146,11 @@ class ShopDayTest extends TestCase
         $downSale = Sale::latest('id')->first();
         $this->check('sell more than in stock (goes on order)', $sell($mugSize, $mug, 50, 7500, 150));
         $orderSale = Sale::latest('id')->first();
-        $this->check('pay off the balance', $this->patch(route('sales.update', $downSale), ['status' => 'pending', 'additional_payment' => 350]));
+        $this->check('pay more by GCash than owed', $this->post(route('sales.payments.store', $downSale), ['amount' => 400, 'method' => 'gcash']), true);
+        $this->check('pay part of the balance', $this->post(route('sales.payments.store', $downSale), ['amount' => 150, 'method' => 'cash']));
+        $this->check('pay off the balance', $this->post(route('sales.payments.store', $downSale), ['amount' => 200, 'method' => 'gcash', 'reference' => '1234 567 890']));
+        $this->check('pay a sale already paid', $this->post(route('sales.payments.store', $downSale), ['amount' => 1, 'method' => 'cash']), true);
+        $this->check('fix a customer\'s phone', $this->patch(route('customers.update', $downSale->customer_id), ['name' => 'Ana', 'phone' => '0917 555 0000']));
         $this->check('complete it', $this->post(route('sales.complete', $downSale)));
         $this->check('complete the paid sale', $this->post(route('sales.complete', $paidSale)));
         $this->check('complete one still on order', $this->post(route('sales.complete', $orderSale)), true);
@@ -152,6 +160,9 @@ class ShopDayTest extends TestCase
         $this->check('ask to void again', $this->post(route('sales.void', $orderSale), ['reason' => 'Customer cancelled']));
         $this->check('cashier archives a category', $this->delete(route('categories.destroy', $category)));
         $this->check('cashier restores it', $this->post(route('categories.restore', $category)));
+        $shift = \App\Models\Shift::where('user_id', $cashier->id)->where('status', 'open')->firstOrFail();
+        $this->check('end the shift, counting short', $this->post(route('shifts.close', $shift), ['actual_cash' => 100]));
+        $this->check('end it again', $this->post(route('shifts.close', $shift), ['actual_cash' => 100]), true);
 
         foreach (['pos.index', 'inventory.index', 'inventory.low-stock', 'inventory.archive', 'inventory.categories', 'categories.archive', 'stock.continuous',
             'stock.discrete', 'stock.rejected', 'materials.archive', 'sales.index', 'approvals.index', 'profile.edit', 'two-factor.show'] as $name) {
@@ -172,14 +183,22 @@ class ShopDayTest extends TestCase
         $this->check('sell a product made from the archived material', $sell($mugSize, $mug, 1, 150, 150), true);
         $this->check('restore the material', $this->post(route('materials.restore', $blank)));
         $this->check('add a cashier', $this->post(route('users.store'), ['name' => 'Ben', 'email' => 'ben@example.com', 'role' => 'cashier', 'password' => 'secret123']));
+        $keychainLine = $paidSale->items()->firstOrFail();
+        $this->check('accept a return', $this->post(route('returns.store'), ['sale_item_id' => $keychainLine->id, 'quantity' => 1, 'condition' => 'good', 'reason' => 'Wrong color']));
+        $this->check('return more than was sold', $this->post(route('returns.store'), ['sale_item_id' => $keychainLine->id, 'quantity' => 5, 'condition' => 'good', 'reason' => 'Wrong color']), true);
+        $this->check('a return without a reason', $this->post(route('returns.store'), ['sale_item_id' => $keychainLine->id, 'quantity' => 1, 'condition' => 'damaged']), true);
 
         // ---------------------------------------------------------------- every page, with this data
         foreach ([$cashier, $owner] as $who) {
             $this->actingAs($who);
             $r = $who->role;
-            foreach (['pos.index', 'inventory.index', 'inventory.low-stock', 'inventory.archive', 'inventory.categories', 'categories.archive', 'stock.continuous',
-                'stock.discrete', 'stock.rejected', 'materials.archive', 'sales.index', 'approvals.index', 'profile.edit', 'two-factor.show'] as $name) {
+            foreach (['pos.index', 'pos.customer-screen', 'inventory.index', 'inventory.low-stock', 'inventory.archive', 'inventory.categories', 'categories.archive', 'stock.continuous',
+                'stock.discrete', 'stock.rejected', 'materials.archive', 'sales.index', 'customers.index', 'approvals.index', 'profile.edit', 'two-factor.show'] as $name) {
                 $this->page("$r $name", route($name));
+            }
+            $this->page("$r every customer", route('customers.index', ['all' => 1, 'search' => 'An']));
+            foreach (\App\Models\Customer::all() as $customer) {
+                $this->page("$r customer {$customer->name}", route('customers.show', $customer));
             }
             $this->page("$r materials archive from discrete", route('materials.archive', ['from' => 'discrete']));
             $this->page("$r rejected with record", route('stock.rejected', ['record' => $ink->id, 'month' => now()->format('Y-m')]));
@@ -195,10 +214,21 @@ class ShopDayTest extends TestCase
             }
             $this->page("$r inventory search", route('inventory.index', ['search' => 'Key', 'category_id' => $category->id]));
             if ($r === 'admin') {
-                foreach (['dashboard', 'users.index', 'sales.archive'] as $name) {
+                foreach (['dashboard', 'users.index', 'sales.archive', 'shifts.index', 'returns.index', 'activity.index', 'activity.download', 'reports.sales.download'] as $name) {
                     $this->page("admin $name", route($name));
                 }
                 $this->page('admin users edit', route('users.index', ['edit' => $cashier->id, 'search' => 'Cash']));
+                foreach (\App\Models\Shift::all() as $shift) {
+                    $this->page("admin shift {$shift->id}", route('shifts.show', $shift));
+                }
+                $this->page('admin shifts of one person', route('shifts.index', ['user' => $cashier->id]));
+                $this->page('admin return lookup', route('returns.index', ['invoice' => $paidSale->invoice_number]));
+                $this->page('admin return lookup, no such sale', route('returns.index', ['invoice' => 'INV-0']));
+                $this->page('admin needs a look', route('activity.index', ['tab' => 'review', 'user' => $cashier->id, 'date_from' => now()->toDateString()]));
+                foreach (array_keys(\App\Services\Sales\SalesReport::PERIODS) as $period) {
+                    $this->page("admin report $period", route('reports.sales', ['period' => $period]));
+                    $this->page("admin report $period before", route('reports.sales', ['period' => $period, 'date' => now()->subYear()->toDateString()]));
+                }
             }
         }
 

@@ -95,7 +95,8 @@ return [
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
+        // Gmail sends only as the account that logs in, so that address is the default.
+        'address' => env('MAIL_FROM_ADDRESS', env('MAIL_USERNAME', 'hello@example.com')),
         'name' => env('MAIL_FROM_NAME', 'Marcomedia POS'),
     ],
 

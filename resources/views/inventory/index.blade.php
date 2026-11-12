@@ -238,6 +238,11 @@ window.inventoryPage = function () {
                         })->implode("\n") ?: 'No materials listed';
                         $short = $variant->materials->reject(fn ($m) => $statuses[$m->id] === 'in_stock')
                             ->sortBy(fn ($m) => $statuses[$m->id] === 'out_of_stock' ? 0 : 1)->values();
+                        // Sold while out of stock and still waiting: stock stays at 0, the count shows here.
+                        $waiting = (int) ($onOrder[$variant->id] ?? 0);
+                        $waitingNote = $product->track_inventory
+                            ? "{$waiting} sold while out of stock. They take their stock automatically when you add it."
+                            : "{$waiting} sold while a material ran out. They take it automatically when it comes in.";
                     @endphp
                     <tr class="border-t border-slate-100">
                         <td class="px-5 py-3 text-ink">{{ $variant->variant_name }}</td>
@@ -251,7 +256,11 @@ window.inventoryPage = function () {
                         </td>
                         @if(! $product->track_inventory)
                         {{-- Made to order: there is no stock to count or restock --}}
-                        <td class="px-5 py-3 text-right text-slate-400">-</td>
+                        <td class="px-5 py-3 text-right text-slate-400 whitespace-nowrap">-
+                            @if($waiting)
+                                <span title="{{ $waitingNote }}" class="ml-1 inline-flex items-center gap-1 align-middle text-xs font-medium text-amber-600"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>{{ $waiting }} on order</span>
+                            @endif
+                        </td>
                         <td class="px-5 py-3 text-right text-slate-400">-</td>
                         <td class="px-5 py-3">
                             @if($short->isEmpty())
@@ -266,7 +275,11 @@ window.inventoryPage = function () {
                         </td>
                         <td class="px-5 py-3 text-slate-400">-</td>
                         @else
-                        <td class="px-5 py-3 text-right font-medium text-ink">{{ $variant->stock_quantity }}</td>
+                        <td class="px-5 py-3 text-right font-medium text-ink whitespace-nowrap">{{ $variant->stock_quantity }}
+                            @if($waiting)
+                                <span title="{{ $waitingNote }}" class="ml-1 inline-flex items-center gap-1 align-middle text-xs font-medium text-amber-600"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>{{ $waiting }} on order</span>
+                            @endif
+                        </td>
                         <td class="px-5 py-3 text-right text-slate-500">{{ $variant->low_stock_threshold }}</td>
                         <td class="px-5 py-3">
                             @php $status = $variant->stock_status; @endphp

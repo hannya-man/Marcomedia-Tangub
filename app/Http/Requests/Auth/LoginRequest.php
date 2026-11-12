@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Models\ActivityLog;
 use App\Models\User;
+use App\Support\EmailRecovery;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
@@ -46,6 +48,10 @@ class LoginRequest extends FormRequest
 
         if (! Auth::validate($this->only('email', 'password'))) {
             RateLimiter::hit($this->throttleKey());
+            $account = Auth::getLastAttempted();   // whose email it was, if anyone's
+            ActivityLog::record($account?->id, 'login.failed', $account
+                ? 'Wrong password at login'
+                : 'Login tried with an email no account has: ' . EmailRecovery::mask((string) $this->input('email')), true);
 
             throw ValidationException::withMessages([
                 'email' => trans('auth.failed'),

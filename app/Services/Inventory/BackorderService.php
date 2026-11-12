@@ -93,7 +93,7 @@ class BackorderService
         $n = $filled->count();
 
         return " {$n} item" . ($n === 1 ? '' : 's') . ' on order took ' . ($n === 1 ? 'its' : 'their')
-            . ' stock and can be made now: ' . $filled->pluck('sale.invoice_number')->unique()->implode(', ') . '.';
+            . ' stock automatically and can be made now: ' . $filled->pluck('sale.invoice_number')->unique()->implode(', ') . '.';
     }
 
     private function takeStock(SaleItem $line, ?int $userId): void

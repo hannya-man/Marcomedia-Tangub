@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\User;
 use App\Services\Auth\TwoFactor;
 use Illuminate\Http\RedirectResponse;
@@ -51,6 +52,7 @@ class TwoFactorChallengeController extends Controller
             : $twoFactor->verify($user, $request->input('code'));
         if (! $ok) {
             RateLimiter::hit($key, 60);
+            ActivityLog::record($user->id, 'login.failed', $useRecovery ? 'Wrong recovery code at login' : 'Wrong two-step verification code at login', true);
 
             return back()->withInput(['use_recovery' => $useRecovery])->withErrors([$field => $useRecovery
                 ? "That recovery code didn't work. Each one works once; type it as it's written."

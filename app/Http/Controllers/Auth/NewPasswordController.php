@@ -10,11 +10,8 @@ use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rules;
 use Illuminate\View\View;
 
@@ -83,16 +80,7 @@ class NewPasswordController extends Controller
         $status = Password::reset(
             ['email' => $user->email] + $request->only('password', 'password_confirmation', 'token'),
             function (User $user) use ($request) {
-                $user->forceFill([
-                    'password' => Hash::make($request->input('password')),
-                    'remember_token' => Str::random(60),
-                ])->save();
-
-                // Logged in anywhere else (maybe by whoever learned the old password): not any more.
-                if (config('session.driver') === 'database') {
-                    DB::table(config('session.table', 'sessions'))->where('user_id', $user->id)->delete();
-                }
-
+                $user->changePassword($request->input('password'));   // and logged out everywhere else
                 event(new PasswordReset($user));
             }
         );

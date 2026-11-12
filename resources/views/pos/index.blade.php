@@ -18,7 +18,9 @@
     </div>
 @endif
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6" x-data="posCart()">
+@include('pos._shift-bar')
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6" x-data="posCart()" x-effect="sendToScreen()">
 
     <!-- Product picker -->
     <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5">
@@ -145,10 +147,17 @@
             <p class="font-medium text-ink flex items-center gap-2">
                 <i data-lucide="shopping-cart" class="w-4 h-4 text-brand-600"></i> Current Sale
             </p>
-            <div class="flex items-center gap-2" x-show="cart.length > 0" style="display:none;">
-                <span x-text="itemCount() + (itemCount() === 1 ? ' item' : ' items')"
+            <div class="flex items-center gap-2">
+                <span x-show="cart.length > 0" style="display:none;" x-text="itemCount() + (itemCount() === 1 ? ' item' : ' items')"
                       class="text-xs bg-brand-50 text-brand-700 rounded-full px-2.5 py-1"></span>
-                <button type="button" @click="clearCart()" class="text-xs text-slate-500 hover:text-red-600">Clear</button>
+                <button type="button" x-show="cart.length > 0" style="display:none;" @click="clearCart()" class="text-xs text-slate-500 hover:text-red-600">Clear</button>
+                {{-- A second monitor facing the customer: drag this window onto it --}}
+                <button type="button" @click="window.open(@js(route('pos.customer-screen')), 'customer-screen', 'popup,width=900,height=650')"
+                    title="Open the customer screen: drag it onto a second monitor facing the customer. It shows the order and the total as you ring it up."
+                    aria-label="Open the customer screen"
+                    class="w-7 h-7 rounded-md flex items-center justify-center text-slate-400 hover:text-brand-600 hover:bg-brand-50">
+                    <i data-lucide="monitor" class="w-4 h-4"></i>
+                </button>
             </div>
         </div>
 
@@ -259,6 +268,9 @@
                         </button>
                     @endforeach
                 </div>
+                <input x-show="paymentMethod === 'gcash'" style="display:none;" type="text" name="payment_reference" value="{{ old('payment_reference') }}"
+                       :disabled="paymentMethod !== 'gcash'" maxlength="100" placeholder="GCash reference no. (optional)" aria-label="GCash reference number"
+                       class="{{ $input }} mt-2">
             </div>
 
             <div class="bg-white rounded-lg border border-slate-200 p-3 space-y-2">
@@ -289,7 +301,10 @@
                        class="{{ $input }}" :class="amountPaid > 0 && amountPaid < total ? 'border-amber-400' : ''">
                 <p x-show="amountPaid > 0 && amountPaid < total" style="display:none;" class="text-xs text-amber-600 mt-1">
                     Down payment: <span x-text="peso(total - amountPaid)"></span> still owed. The sale stays <strong>Pending</strong> until it's paid in full.
-                    <span x-show="!hasCustomer()">Add the customer so you know who owes it.</span>
+                    <span x-show="!hasCustomer()" class="block mt-1 font-medium text-red-600">A down payment needs the customer: pick them above, or press + New customer.</span>
+                </p>
+                <p x-show="paymentMethod === 'gcash' && amountPaid > total && total > 0" style="display:none;" class="text-xs text-red-600 mt-1">
+                    A GCash payment can't be more than the total: there's no change to give back. Enter the exact amount.
                 </p>
                 <p x-show="amountPaid >= total && amountPaid > 0" style="display:none;" class="text-xs text-emerald-600 mt-1">
                     Paid in full. Change: <span x-text="peso(amountPaid - total)"></span>
@@ -363,6 +378,9 @@ function posCart() {
         cartInView: false,   // phones: hides the checkout bar once the cart is on screen
 
         init() {
+            // The customer screen asks for the order when it opens.
+            this.customerScreen = 'BroadcastChannel' in window ? new BroadcastChannel('marcomedia-customer-screen') : null;
+            if (this.customerScreen) this.customerScreen.onmessage = (e) => { if (e.data?.type === 'hello') this.sendToScreen(); };
             const cartEl = document.getElementById('pos-cart');
             if (cartEl && 'IntersectionObserver' in window) {
                 // The bar's own 80 px at the bottom don't count as on screen.
@@ -566,8 +584,15 @@ function posCart() {
         hasCustomer() {
             return this.newCustomer ? this.newCustomerName.trim() !== '' : this.customerId !== '';
         },
+        isDownPayment() {
+            return this.amountPaid > 0 && this.amountPaid < this.total;
+        },
+        gcashTooMuch() {
+            return this.paymentMethod === 'gcash' && this.total > 0 && this.amountPaid > this.total;
+        },
         canSubmit() {
-            return this.cart.length > 0 && this.amountPaid > 0 && !this.missingPrice() && !(this.discount > this.subtotal);
+            return this.cart.length > 0 && this.amountPaid > 0 && !this.missingPrice() && !(this.discount > this.subtotal)
+                && !(this.isDownPayment() && !this.hasCustomer()) && !this.gcashTooMuch();
         },
         peso(n) {
             return '₱' + (Number(n) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -578,10 +603,31 @@ function posCart() {
                 e.preventDefault();
                 alert(this.missingPrice() ? 'Enter a price for every item in the cart.'
                     : this.discount > this.subtotal ? "The discount can't be more than the subtotal."
+                    : this.gcashTooMuch() ? "A GCash payment can't be more than the total. Enter the exact amount."
+                    : this.isDownPayment() ? 'A down payment needs the customer: pick them, or press + New customer.'
                     : 'Please enter an amount paid (a full payment or a down payment) before completing the sale.');
                 return;
             }
             this.submitted = true;
+            this.customerScreen?.postMessage({ type: 'done', total: this.total, paid: Number(this.amountPaid) || 0, method: this.paymentMethod });
+        },
+
+        // The customer screen (pos/customer-screen), open in another window of this browser: it shows
+        // what's sent here. Runs again by itself (x-effect) whenever the order or the payment changes.
+        sendToScreen() {
+            const order = {
+                lines: this.cart.map(i => ({
+                    name: i.name + (i.variant_name ? ` (${i.variant_name})` : ''),
+                    quantity: Number(i.quantity) || 0,
+                    price: Number(i.price) || 0,
+                    total: this.lineTotal(i),
+                })),
+                discount: Number(this.discount) || 0,
+                total: this.total,
+                paid: Number(this.amountPaid) || 0,
+                method: this.paymentMethod,
+            };
+            this.customerScreen?.postMessage({ type: 'order', order });
         },
     }
 }

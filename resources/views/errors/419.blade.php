@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Page expired - Marcomedia POS</title>
-    @vite(['resources/css/app.css'])
+    <link rel="stylesheet" href="{{ asset('css/app.css') }}">
 </head>
 {{-- Laravel's "419 Page Expired": a form sent from a page left open after the login ended. --}}
 <body class="auth-backdrop min-h-screen flex items-center justify-center p-4">

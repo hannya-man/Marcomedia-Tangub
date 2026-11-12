@@ -78,7 +78,16 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
 
         // Owner-only actions — returns and physical counts must never be
         // reachable by a cashier, so these stay out of the shared group below.
+        Route::get('/returns', [\App\Http\Controllers\SaleReturnController::class, 'index'])->name('returns.index');
         Route::post('/returns', [\App\Http\Controllers\SaleReturnController::class, 'store'])->name('returns.store');
+
+        // Looking back: what sold, every shift with its cash count, and everyone's activity.
+        Route::get('/reports/sales', [\App\Http\Controllers\ReportController::class, 'sales'])->name('reports.sales');
+        Route::get('/reports/sales/download', [\App\Http\Controllers\ReportController::class, 'download'])->name('reports.sales.download');
+        Route::get('/shifts', [\App\Http\Controllers\ShiftController::class, 'index'])->name('shifts.index');
+        Route::get('/shifts/{shift}', [\App\Http\Controllers\ShiftController::class, 'show'])->name('shifts.show');
+        Route::get('/activity', [\App\Http\Controllers\ActivityController::class, 'index'])->name('activity.index');
+        Route::get('/activity/download', [\App\Http\Controllers\ActivityController::class, 'download'])->name('activity.download');
         Route::post('/physical-counts', [\App\Http\Controllers\PhysicalCountController::class, 'store'])->name('physical-counts.store');
 
         // Deleting (archiving) a product, and bringing one back: owner only. Cashiers can't remove
@@ -102,6 +111,13 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::get('/pos', [POSController::class, 'index'])->name('pos.index');
         Route::post('/pos', [POSController::class, 'store'])->name('pos.store');
         Route::get('/pos/receipt/{sale}', [POSController::class, 'receipt'])->name('pos.receipt');
+        Route::get('/pos/customer-screen', [POSController::class, 'customerScreen'])->name('pos.customer-screen');
+
+        // Paying what a sale still owes (each payment kept with its sale), and who owes what.
+        Route::post('/sales/{sale}/payments', [\App\Http\Controllers\SalePaymentController::class, 'store'])->name('sales.payments.store');
+        Route::get('/customers', [\App\Http\Controllers\CustomerController::class, 'index'])->name('customers.index');
+        Route::get('/customers/{customer}', [\App\Http\Controllers\CustomerController::class, 'show'])->name('customers.show');
+        Route::patch('/customers/{customer}', [\App\Http\Controllers\CustomerController::class, 'update'])->name('customers.update');
 
         Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');
         // Adding or editing a product (its details, sizes, prices and what each size is made of): an
@@ -164,9 +180,8 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::post('/sales/{sale}/take-stock', [POSController::class, 'takeStock'])->name('sales.take-stock');
         Route::patch('/sales/{sale}', [POSController::class, 'update'])->name('sales.update');
 
-        // Shift open/close — every cashier and admin runs their own shift.
-        // Close is blocked inside the controller unless counted cash
-        // matches system sales for that shift's window.
+        // Shift open/close — every cashier and admin runs their own shift, from Billing/POS. Closing is
+        // a blind cash count: a difference is kept and flagged for the owner (Activity Log).
         Route::post('/shifts/open', [\App\Http\Controllers\ShiftController::class, 'open'])->name('shifts.open');
         Route::post('/shifts/{shift}/close', [\App\Http\Controllers\ShiftController::class, 'close'])->name('shifts.close');
     });

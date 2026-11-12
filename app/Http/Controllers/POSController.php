@@ -9,9 +9,11 @@ use App\Models\SaleItem;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\InventoryBatch;
+use App\Models\Shift;
 use App\Services\Inventory\BackorderService;
 use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\SheetYield;
+use App\Services\Sales\SalePayments;
 use App\Services\Sales\SaleVoider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -65,6 +67,7 @@ class POSController extends Controller
 
         $customers = Customer::orderBy('name')->get();
         $categories = \App\Models\Category::whereNull('archived_at')->inShopOrder()->get();
+        $shift = Shift::openFor(Auth::id());
 
         // What the picker and cart need about each product, by id. Sent as data rather than
         // written into the markup, so a name like "Kid's Shirt" can't break the page's script.
@@ -129,11 +132,18 @@ class POSController extends Controller
             ]];
         });
 
-        return view('pos.index', compact('products', 'customers', 'categories', 'catalog'));
+        return view('pos.index', compact('products', 'customers', 'categories', 'catalog', 'shift'));
+    }
+
+    // The customer's screen, for a second monitor facing the counter: it shows the order Billing/POS
+    // sends it in this same browser, and nothing else.
+    public function customerScreen()
+    {
+        return view('pos.customer-screen');
     }
 
     // Process the sale/transaction
-    public function store(Request $request)
+    public function store(Request $request, SalePayments $payments)
     {
         $validated = $request->validate([
             'items' => 'required|array|min:1',
@@ -150,6 +160,7 @@ class POSController extends Controller
             'new_customer_name' => 'nullable|string|max:150',
             'new_customer_phone' => 'nullable|string|max:30',
             'payment_method' => 'required|in:cash,gcash',
+            'payment_reference' => 'nullable|string|max:100',
             'amount_paid' => 'required|numeric|min:0|max:9999999',
             'discount_amount' => 'nullable|numeric|min:0',
         ], [
@@ -158,7 +169,7 @@ class POSController extends Controller
         ]);
 
         try {
-            return DB::transaction(function () use ($validated) {
+            return DB::transaction(function () use ($validated, $payments) {
                 $subtotal = 0;
                 $lineItems = [];
 
@@ -223,28 +234,38 @@ class POSController extends Controller
                     ])->id;
                 }
 
-                // Payment status drives the sale's workflow status:
-                // - partial payment (a down payment) -> pending, balance still owed
-                // - paid in full -> processing, waiting for staff to confirm the
-                //   item itself is actually done/released before calling it "completed"
-                $status = $amountPaid < $total ? 'pending' : 'processing';
+                // A down payment leaves a balance, and the balance needs a name to go under.
+                if ($amountPaid < $total && ! $customerId) {
+                    throw new \RuntimeException('A down payment needs the customer: pick them, or add them as a new customer, so the balance shows under their name.');
+                }
 
+                // Saved unpaid, then the counter payment is taken like every payment after it
+                // (SalePayments), so it's the first line of the sale's payment history. Paid in full
+                // moves it on to processing (made, then released: "completed"); a down payment keeps
+                // it pending, with the balance still owed.
                 $sale = Sale::create([
                     'invoice_number' => Sale::generateInvoiceNumber(),
                     'customer_id' => $customerId,
                     'user_id' => Auth::id(),
+                    'shift_id' => Shift::openFor(Auth::id())?->id,
                     'subtotal' => $subtotal,
                     'discount_amount' => $discount,
                     'tax_amount' => 0,
                     'total_amount' => $total,
-                    'amount_paid' => $amountPaid,
-                    'change_amount' => max($amountPaid - $total, 0),
+                    'amount_paid' => 0,
+                    'change_amount' => 0,
                     'payment_method' => $validated['payment_method'],
-                    'status' => $status,
+                    'status' => $total > 0 ? 'pending' : 'processing',   // all discount: nothing to pay
                 ]);
+                if ($total > 0) {
+                    $payments->record($sale, (float) $amountPaid, $validated['payment_method'], $validated['payment_reference'] ?? null, Auth::user());
+                    $sale->refresh();
+                }
+                $status = $sale->status;
 
                 $backorders = app(BackorderService::class);
                 $onOrder = 0;
+                $tookCount = [];   // stocked sizes that took their count, to warn about any left at 0
 
                 foreach ($lineItems as $line) {
                     $saleItem = SaleItem::create([
@@ -269,6 +290,8 @@ class POSController extends Controller
                     // Marcomedia accepts orders even when an item runs out.
                     if ($backorders->take($saleItem, Auth::id())) {
                         $onOrder += $line['quantity'];
+                    } elseif ($line['product']->track_inventory && $line['variant']) {
+                        $tookCount[] = $line['variant']->id;
                     }
                 }
 
@@ -277,8 +300,14 @@ class POSController extends Controller
                     $message .= " {$onOrder} " . ($onOrder === 1 ? 'item is' : 'items are') . ' on order: out of stock now, '
                         . ($onOrder === 1 ? 'it takes its' : 'they take their') . ' stock as soon as it comes in.';
                 }
+                // Taking the last ones leaves a size at 0, never below: say so, so it gets restocked.
+                $emptied = ProductVariant::with('product')->whereIn('id', $tookCount)->get()
+                    ->filter(fn ($v) => $v->sellable_quantity <= 0);
+                $warning = $emptied->isEmpty() ? null : 'Now out of stock: '
+                    . $emptied->map(fn ($v) => "{$v->product->name} ({$v->variant_name})")->implode(', ')
+                    . '. More sales of ' . ($emptied->count() === 1 ? 'it' : 'them') . ' go on order and take their stock when you add it.';
 
-                return redirect()->route('pos.receipt', $sale->id)->with('success', $message);
+                return redirect()->route('pos.receipt', $sale->id)->with('success', $message)->with('warning', $warning);
             }, 3);   // tried again if it ran into another sale at the same moment (a database deadlock)
         } catch (\RuntimeException $e) {
             return back()->withInput()->with('error', $e->getMessage());
@@ -297,9 +326,10 @@ class POSController extends Controller
         return isset($a['width_in'], $a['height_in']) ? [(float) $a['width_in'], (float) $a['height_in']] : null;
     }
 
+    // The sale's own page: its receipt, every payment made on it, and taking the next one.
     public function receipt(Sale $sale)
     {
-        $sale->load('items.cutPiece.cutFrom', 'customer', 'user');
+        $sale->load('items.cutPiece.cutFrom', 'customer', 'user', 'payments.receivedBy');
         return view('pos.receipt', compact('sale'));
     }
 
@@ -309,7 +339,7 @@ class POSController extends Controller
     {
         $this->autoArchiveOld();
 
-        $query = Sale::with(['user', 'customer', 'items'])->where('status', '!=', 'archived');
+        $query = Sale::with(['user', 'customer', 'items', 'payments'])->where('status', '!=', 'archived');
 
         if ($request->filled('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);
@@ -447,13 +477,12 @@ class POSController extends Controller
         return back()->with('success', "Sale {$sale->invoice_number} archived.");
     }
 
-    // Edit a sale: update status directly, and/or record an additional
-    // payment against a pending (down-payment) sale.
+    // Edit a sale's status. Payments are taken on the sale's page (SalePaymentController), where each
+    // one is kept.
     public function update(Request $request, Sale $sale)
     {
         $validated = $request->validate([
             'status' => 'required|in:pending,processing,completed,voided',
-            'additional_payment' => 'nullable|numeric|min:0',
         ]);
 
         if ($sale->status === 'archived') {
@@ -473,23 +502,20 @@ class POSController extends Controller
                 : back()->with('error', "Use the red Void button to ask the owner to void {$sale->invoice_number}.");
         }
 
-        $paid = round((float) $sale->amount_paid + (float) ($validated['additional_payment'] ?? 0), 2);
-        $due = round((float) $sale->total_amount - $paid, 2);
-        // Paying off the balance moves a down payment on to processing.
+        $due = round((float) $sale->total_amount - (float) $sale->amount_paid, 2);
+        // Paid in full isn't a down payment any more.
         if ($due <= 0 && $validated['status'] === 'pending') {
             $validated['status'] = 'processing';
         }
         // Processing and completed mean paid in full.
         if ($due > 0 && in_array($validated['status'], ['processing', 'completed'])) {
             return back()->with('error', "{$sale->invoice_number} still has ₱" . number_format($due, 2)
-                . ' to pay. Record the payment first, or keep it Pending.');
+                . ' to pay. Record the payment on its page first (Record payment), or keep it Pending.');
         }
         if ($validated['status'] === 'completed' && $sale->status !== 'completed' && ($waiting = $this->stillOnOrder($sale))) {
             return back()->with('error', $waiting);
         }
 
-        $sale->amount_paid = $paid;
-        $sale->change_amount = max($paid - (float) $sale->total_amount, 0);
         $sale->status = $validated['status'];
         $sale->save();
 

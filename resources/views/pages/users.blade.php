@@ -132,10 +132,11 @@
             </div>
             <div>
                 <label class="text-xs font-medium text-slate-600">
-                    Password {{ $editingUser ? '(leave blank to keep current)' : '' }}
+                    {{ $editingUser ? 'New password (leave blank to keep the current one)' : 'Password' }}
                 </label>
                 <div class="relative mt-1">
-                    <input :type="showPassword ? 'text' : 'password'" name="password" {{ $editingUser ? '' : 'required' }}
+                    <input :type="showPassword ? 'text' : 'password'" name="password" {{ $editingUser ? '' : 'required' }} minlength="8" autocomplete="new-password"
+                           placeholder="At least 8 characters"
                            class="w-full text-sm rounded-lg border border-slate-300 bg-white px-3 py-2 pr-10 focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
                     <button type="button" @click="showPassword = !showPassword"
                             class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600">

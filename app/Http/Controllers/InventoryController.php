@@ -2,9 +2,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\ApprovalRequest;
+use App\Models\InventoryBatch;
 use App\Models\Material;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\SaleItem;
 use App\Models\Category;
 use App\Services\Catalog\ProductEditor;
 use App\Services\Inventory\BackorderService;
@@ -36,6 +38,11 @@ class InventoryController extends Controller
         $request->session()->put('inventory.list_url', $request->fullUrl());
         $categories = Category::whereNull('archived_at')->inShopOrder()->get();
         $archivedCount = Product::where('status', 'archived')->count();
+        // Sold while out of stock, by size: Stock shows how many wait (they take it when it comes in).
+        $onOrder = SaleItem::onOrder()->whereNotNull('product_variant_id')
+            ->whereHas('sale', fn ($q) => $q->whereIn('status', ['pending', 'processing']))
+            ->groupBy('product_variant_id')->selectRaw('product_variant_id, SUM(quantity) as quantity')
+            ->pluck('quantity', 'product_variant_id');
         // "Made from" choices. Whole boards and rolls aren't: a product uses their standard pieces
         // ("Sintra Board - Long"), which cut the next board themselves when they run out.
         $materials = \App\Models\Material::whereNull('archived_at')->whereNull('sheet_width')->orderBy('name')->get();
@@ -50,7 +57,7 @@ class InventoryController extends Controller
             'sizes' => ProductVariant::pluck('sku')->filter()->map(fn ($s) => strtoupper($s))->values(),
         ];
 
-        return view('inventory.index', compact('products', 'categories', 'archivedCount', 'materials', 'waitingCount', 'skuPrefixes', 'takenSkus'));
+        return view('inventory.index', compact('products', 'categories', 'archivedCount', 'materials', 'waitingCount', 'skuPrefixes', 'takenSkus', 'onOrder'));
     }
 
     // Add Product now lives inline on the index page as a popout panel —
@@ -189,10 +196,41 @@ class InventoryController extends Controller
                 Auth::id()
             );
         } catch (\RuntimeException $e) {
-            return back()->with('error', "Stock not added to {$variant->variant_name}. " . $e->getMessage());
+            $message = "Stock not added to {$variant->variant_name}. " . $e->getMessage();
+            $most = $signedQty > 0 ? $this->mostToMake($variant) : null;
+            if ($most !== null && $most < $signedQty) {
+                $message .= $most > 0
+                    ? " You can add up to {$most} now, or add more materials first."
+                    : ' Add more materials first.';
+            }
+
+            return back()->with('error', $message);
         }
 
         return back()->with('success', "Stock updated for {$variant->variant_name}." . ($signedQty > 0 ? $backorders->fillAfterRestock(Auth::id()) : ''));
+    }
+
+    // How many of a size the store's counted materials can make now (a restock takes them, as
+    // Billing/POS counts them), or null when that isn't simple: none counted, or pieces cut from boards.
+    private function mostToMake(ProductVariant $variant): ?int
+    {
+        $most = null;
+        foreach ($variant->materials()->get() as $m) {
+            if ($m->inventory_type === 'continuous') {
+                continue;   // logged by hand, never taken by a restock
+            }
+            if ($m->cut_from_id || ($m->pivot->consumption_type ?? 'fixed') !== 'fixed') {
+                return null;
+            }
+            $per = (float) $m->pivot->quantity_per_unit;
+            if ($per <= 0) {
+                continue;
+            }
+            $have = $m->archived_at ? 0 : (float) InventoryBatch::where('material_id', $m->id)->usable()->inStore()->sum('remaining_quantity');
+            $most = min($most ?? PHP_INT_MAX, (int) floor($have / $per + 0.0005));
+        }
+
+        return $most;
     }
 
     // Marks units as damaged — pulled out of sellable count without

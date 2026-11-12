@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
 
 class UserController extends Controller
 {
@@ -36,7 +37,7 @@ class UserController extends Controller
             'name' => 'required|string|max:100',
             'email' => 'required|email|max:150|unique:users,email',
             'role' => 'required|in:admin,cashier',
-            'password' => 'required|string|min:6',
+            'password' => ['required', 'string', Password::defaults()],
         ]);
 
         User::create([
@@ -46,7 +47,7 @@ class UserController extends Controller
             'password' => Hash::make($validated['password']),
         ]);
 
-        return redirect()->route('users.index')->with('success', 'User created.');
+        return redirect()->route('users.index')->with('success', "Account made for {$validated['name']} (" . ($validated['role'] === 'admin' ? 'owner' : 'cashier') . ').');
     }
 
     // Handles editing ANY user's name/email/role/password, including the
@@ -57,7 +58,7 @@ class UserController extends Controller
             'name' => 'required|string|max:100',
             'email' => 'required|email|max:150|unique:users,email,' . $user->id,
             'role' => 'required|in:admin,cashier',
-            'password' => 'nullable|string|min:6',
+            'password' => ['nullable', 'string', Password::defaults()],
         ]);
 
         // The last owner can't become a cashier: no one could reach the dashboard or User
@@ -73,12 +74,14 @@ class UserController extends Controller
             $user->email_verified_at = null;
         }
         $user->role = $validated['role'];
-        if (!empty($validated['password'])) {
-            $user->password = Hash::make($validated['password']);
-        }
         $user->save();
+        // A forgotten password, set by the owner: like the emailed link, it logs them out everywhere else.
+        if (! empty($validated['password'])) {
+            $user->changePassword($validated['password']);
+        }
 
-        return redirect()->route('users.index')->with('success', "{$user->name}'s account updated.");
+        return redirect()->route('users.index')->with('success', "{$user->name}'s account updated."
+            . (empty($validated['password']) ? '' : ' The new password works now, and any other device they were logged in on is logged out.'));
     }
 
     // Deletes a cashier's account, confirmed with the owner's authenticator code. The account is

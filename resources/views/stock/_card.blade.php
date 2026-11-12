@@ -188,7 +188,9 @@
                 <i data-lucide="calculator" class="w-3.5 h-3.5"></i> Fix count
             </button>
         @endif
-        @if($store->count())
+        {{-- Counted pieces left in the pack in use are used first (the next pack opens by itself),
+             so it's offered only while there are none: starting it threw the rest away --}}
+        @if($store->count() && ($kind === 'continuous' || ! $active || (float) $active->remaining_quantity <= 0.0005))
             <button type="button" @click="show('open', {{ $m->id }})" title="Start using the next unopened pack. The one in use now is marked finished." class="{{ $btnOutline }}">
                 <i data-lucide="package-open" class="w-3.5 h-3.5"></i> Start a new pack
             </button>

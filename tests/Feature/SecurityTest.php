@@ -42,7 +42,7 @@ class SecurityTest extends TestCase
 
         foreach ($pages as $html) {
             preg_match_all('/<script\b[^>]*\bsrc="(https?:[^"]*)"[^>]*>/', $html, $tags);
-            // This site's own files (Vite's build) need no hash.
+            // This site's own files need no hash.
             $others = array_filter($tags[0], fn ($tag, $i) => ! str_starts_with($tags[1][$i], url('/') . '/'), ARRAY_FILTER_USE_BOTH);
             $this->assertNotEmpty($others);
             foreach ($others as $tag) {
