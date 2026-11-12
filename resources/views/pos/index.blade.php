@@ -301,7 +301,7 @@
                        class="{{ $input }}" :class="amountPaid > 0 && amountPaid < total ? 'border-amber-400' : ''">
                 <p x-show="amountPaid > 0 && amountPaid < total" style="display:none;" class="text-xs text-amber-600 mt-1">
                     Down payment: <span x-text="peso(total - amountPaid)"></span> still owed. The sale stays <strong>Pending</strong> until it's paid in full.
-                    <span x-show="!hasCustomer()" class="block mt-1 font-medium text-red-600">A down payment needs the customer: pick them above, or press + New customer.</span>
+                    <span x-show="!hasCustomer()">Add the customer so you know who owes it.</span>
                 </p>
                 <p x-show="paymentMethod === 'gcash' && amountPaid > total && total > 0" style="display:none;" class="text-xs text-red-600 mt-1">
                     A GCash payment can't be more than the total: there's no change to give back. Enter the exact amount.
@@ -584,15 +584,11 @@ function posCart() {
         hasCustomer() {
             return this.newCustomer ? this.newCustomerName.trim() !== '' : this.customerId !== '';
         },
-        isDownPayment() {
-            return this.amountPaid > 0 && this.amountPaid < this.total;
-        },
         gcashTooMuch() {
             return this.paymentMethod === 'gcash' && this.total > 0 && this.amountPaid > this.total;
         },
         canSubmit() {
-            return this.cart.length > 0 && this.amountPaid > 0 && !this.missingPrice() && !(this.discount > this.subtotal)
-                && !(this.isDownPayment() && !this.hasCustomer()) && !this.gcashTooMuch();
+            return this.cart.length > 0 && this.amountPaid > 0 && !this.missingPrice() && !(this.discount > this.subtotal) && !this.gcashTooMuch();
         },
         peso(n) {
             return '₱' + (Number(n) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -604,7 +600,6 @@ function posCart() {
                 alert(this.missingPrice() ? 'Enter a price for every item in the cart.'
                     : this.discount > this.subtotal ? "The discount can't be more than the subtotal."
                     : this.gcashTooMuch() ? "A GCash payment can't be more than the total. Enter the exact amount."
-                    : this.isDownPayment() ? 'A down payment needs the customer: pick them, or press + New customer.'
                     : 'Please enter an amount paid (a full payment or a down payment) before completing the sale.');
                 return;
             }

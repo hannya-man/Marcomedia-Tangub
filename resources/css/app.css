@@ -233,3 +233,36 @@ main { view-transition-name: page; }
 .dark .text-amber-600, .dark .text-amber-700, .dark .text-amber-800, .dark .text-amber-900 { color: #fcd34d; }
 .dark .text-red-500, .dark .text-red-600, .dark .text-red-700 { color: #fca5a5; }
 .dark .text-blue-700, .dark .text-sky-700, .dark .text-indigo-700, .dark .text-indigo-800 { color: #93c5fd; }
+
+/* =====================================================================
+   SKELETON: grey shapes stand in for the content column (#page-content: everything but the
+   sidebar) while the next page is on its way, and on arrival until Alpine and the icons are
+   drawn (window.skeleton in layouts/app). Each heading, line, cell, button, field and icon
+   becomes a shimmering block of its own size; cards keep their outline.
+   ===================================================================== */
+:root { --sk-a: #e2e8f0; --sk-b: #f8fafc; }
+.dark { --sk-a: #334155; --sk-b: #475569; }   /* lighter than the dark cards (#1e293b) */
+.skeleton { pointer-events: none; }
+.skeleton * { color: transparent !important; text-shadow: none !important; }
+.skeleton ::placeholder { color: transparent !important; }
+.skeleton :is(h1, h2, h3, p, a, button, label, input, select, textarea, th, td, span, svg, div.rounded-full) {
+    background: linear-gradient(90deg, var(--sk-a) 35%, var(--sk-b) 50%, var(--sk-a) 65%) !important;
+    background-size: 300% 100% !important;
+    background-clip: content-box !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    border-radius: .375rem;
+    animation: skeleton-shine 1.4s ease-in-out infinite;
+}
+/* Buttons, fields and links keep their whole shape, padding included. */
+.skeleton :is(a, button, input, select, textarea) { background-clip: border-box !important; }
+/* One block per thing: what's inside a block doesn't draw its own. */
+.skeleton :is(h1, h2, h3, p, a, button, label, th, td, span) :is(h1, h2, h3, p, a, button, label, span, svg, div) {
+    background: none !important;
+    animation: none;
+}
+.skeleton :is(canvas, img) { visibility: hidden; }
+@keyframes skeleton-shine { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+    .skeleton * { animation: none !important; }
+}

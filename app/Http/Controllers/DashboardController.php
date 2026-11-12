@@ -90,22 +90,26 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
-        $recentSales = Sale::with('user')->latest()->limit(8)->get();
+        $recentSales = Sale::with('user', 'items')->latest()->limit(8)->get();
 
         // Replaces the old hardcoded "Recent Activity" feed with real stock movement history.
         $recentMovements = \App\Models\InventoryMovement::with('variant.product', 'user')
             ->latest('created_at')->limit(6)->get();
 
         // Real Weekly / Monthly / Yearly chart data — replaces the old
-        // hardcoded placeholder numbers on the Sales Overview chart.
+        // hardcoded placeholder numbers on the Sales Overview chart. One query for the daily totals
+        // of the last 12 months, added up here: a query per bar took 23 trips to the database.
+        $daily = Sale::where('status', 'completed')->where('created_at', '>=', now()->subMonths(11)->startOfMonth())
+            ->selectRaw('DATE(created_at) as day, SUM(total_amount) as total')->groupBy('day')->pluck('total', 'day')
+            ->mapWithKeys(fn ($total, $day) => [(string) $day => (float) $total]);
+        $sumDays = fn ($from, $to) => $daily->filter(fn ($total, $day) => $day >= $from->toDateString() && $day <= $to->toDateString())->sum();
+
         $weeklyLabels = [];
         $weeklyData = [];
         for ($i = 6; $i >= 0; $i--) {
             $date = now()->subDays($i);
             $weeklyLabels[] = $date->format('D');
-            $weeklyData[] = (float) Sale::where('status', 'completed')
-                ->whereDate('created_at', $date->toDateString())
-                ->sum('total_amount');
+            $weeklyData[] = (float) ($daily[$date->toDateString()] ?? 0);
         }
 
         $monthlyLabels = [];
@@ -114,9 +118,7 @@ class DashboardController extends Controller
             $start = now()->subWeeks($i)->startOfWeek();
             $end = now()->subWeeks($i)->endOfWeek();
             $monthlyLabels[] = 'Week of ' . $start->format('M j');
-            $monthlyData[] = (float) Sale::where('status', 'completed')
-                ->whereBetween('created_at', [$start, $end])
-                ->sum('total_amount');
+            $monthlyData[] = (float) $sumDays($start, $end);
         }
 
         $yearlyLabels = [];
@@ -124,10 +126,7 @@ class DashboardController extends Controller
         for ($i = 11; $i >= 0; $i--) {
             $month = now()->subMonths($i);
             $yearlyLabels[] = $month->format('M');
-            $yearlyData[] = (float) Sale::where('status', 'completed')
-                ->whereYear('created_at', $month->year)
-                ->whereMonth('created_at', $month->month)
-                ->sum('total_amount');
+            $yearlyData[] = (float) $sumDays($month->copy()->startOfMonth(), $month->copy()->endOfMonth());
         }
 
         $chartSets = [
@@ -136,17 +135,14 @@ class DashboardController extends Controller
             'yearly' => ['labels' => $yearlyLabels, 'data' => $yearlyData],
         ];
 
-        // Money still owed on down payments, and who is working now.
-        $owing = Sale::owing()->selectRaw('COUNT(*) as count, COALESCE(SUM(total_amount - amount_paid), 0) as owed')->first();
-        $owed = (float) $owing->owed;
-        $owingSales = (int) $owing->count;
+        // Who is working now.
         $onShift = Shift::with('user')->where('status', 'open')->orderBy('opened_at')->get();
 
         return view('dashboard.index', compact(
             'todaySales', 'todayTransactions', 'monthSales',
             'lowStockVariants', 'outOfStockCount', 'lowStockCount', 'totalStockItems',
             'salesTrend', 'topMovers', 'slowMovers', 'recentSales', 'recentMovements', 'chartSets',
-            'owed', 'owingSales', 'onShift',
+            'onShift',
         ));
     }
 }

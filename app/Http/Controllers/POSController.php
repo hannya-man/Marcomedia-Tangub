@@ -62,7 +62,7 @@ class POSController extends Controller
             }
             $pieces = $inventory->piecesOf($stocks);
 
-            return ['pieces' => $pieces, 'available' => $pieces->mapWithKeys(fn ($piece) => [$piece->id => $inventory->cutAvailable($piece)])->all()];
+            return ['pieces' => $pieces, 'available' => $inventory->cutAvailableFor($pieces)];
         };
 
         $customers = Customer::orderBy('name')->get();
@@ -232,11 +232,6 @@ class POSController extends Controller
                         'name' => trim($validated['new_customer_name']),
                         'phone' => filled($validated['new_customer_phone'] ?? null) ? trim($validated['new_customer_phone']) : null,
                     ])->id;
-                }
-
-                // A down payment leaves a balance, and the balance needs a name to go under.
-                if ($amountPaid < $total && ! $customerId) {
-                    throw new \RuntimeException('A down payment needs the customer: pick them, or add them as a new customer, so the balance shows under their name.');
                 }
 
                 // Saved unpaid, then the counter payment is taken like every payment after it

@@ -524,6 +524,8 @@ class StockController extends Controller
         // variants_count: how many product sizes list the material in their recipe (warned about on archive).
         $materials = Material::whereNull('archived_at')->where('inventory_type', $type)->whereNull('cut_from_id')
             ->withCount('variants')->with(['cutSizes' => fn ($q) => $q->whereNull('archived_at')])->orderBy('name')->get();
+        // A piece's board is the card it's on, so its name (cutLabel) needs no query per piece.
+        $materials->each(fn ($m) => $m->cutSizes->each->setRelation('cutFrom', $m));
         $unset = Material::whereNull('archived_at')->whereNull('inventory_type')->whereNull('cut_from_id')->orderBy('name')->get();
         $archivedCount = Material::whereNotNull('archived_at')->whereNull('cut_from_id')->count();
         $pieces = $materials->flatMap->cutSizes;

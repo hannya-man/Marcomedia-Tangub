@@ -150,7 +150,6 @@ class ShopDayTest extends TestCase
         $this->check('pay part of the balance', $this->post(route('sales.payments.store', $downSale), ['amount' => 150, 'method' => 'cash']));
         $this->check('pay off the balance', $this->post(route('sales.payments.store', $downSale), ['amount' => 200, 'method' => 'gcash', 'reference' => '1234 567 890']));
         $this->check('pay a sale already paid', $this->post(route('sales.payments.store', $downSale), ['amount' => 1, 'method' => 'cash']), true);
-        $this->check('fix a customer\'s phone', $this->patch(route('customers.update', $downSale->customer_id), ['name' => 'Ana', 'phone' => '0917 555 0000']));
         $this->check('complete it', $this->post(route('sales.complete', $downSale)));
         $this->check('complete the paid sale', $this->post(route('sales.complete', $paidSale)));
         $this->check('complete one still on order', $this->post(route('sales.complete', $orderSale)), true);
@@ -193,12 +192,8 @@ class ShopDayTest extends TestCase
             $this->actingAs($who);
             $r = $who->role;
             foreach (['pos.index', 'pos.customer-screen', 'inventory.index', 'inventory.low-stock', 'inventory.archive', 'inventory.categories', 'categories.archive', 'stock.continuous',
-                'stock.discrete', 'stock.rejected', 'materials.archive', 'sales.index', 'customers.index', 'approvals.index', 'profile.edit', 'two-factor.show'] as $name) {
+                'stock.discrete', 'stock.rejected', 'materials.archive', 'sales.index', 'approvals.index', 'profile.edit', 'two-factor.show'] as $name) {
                 $this->page("$r $name", route($name));
-            }
-            $this->page("$r every customer", route('customers.index', ['all' => 1, 'search' => 'An']));
-            foreach (\App\Models\Customer::all() as $customer) {
-                $this->page("$r customer {$customer->name}", route('customers.show', $customer));
             }
             $this->page("$r materials archive from discrete", route('materials.archive', ['from' => 'discrete']));
             $this->page("$r rejected with record", route('stock.rejected', ['record' => $ink->id, 'month' => now()->format('Y-m')]));
@@ -228,7 +223,9 @@ class ShopDayTest extends TestCase
                 foreach (array_keys(\App\Services\Sales\SalesReport::PERIODS) as $period) {
                     $this->page("admin report $period", route('reports.sales', ['period' => $period]));
                     $this->page("admin report $period before", route('reports.sales', ['period' => $period, 'date' => now()->subYear()->toDateString()]));
+                    $this->page("admin report $period, one person", route('reports.sales', ['period' => $period, 'user' => $cashier->id]));
                 }
+                $this->page('admin report as CSV', route('reports.sales.download', ['format' => 'csv', 'period' => 'year']));
             }
         }
 

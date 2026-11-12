@@ -136,9 +136,6 @@
 
 <div class="flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm">
     <a href="{{ route('sales.index') }}" class="text-slate-500">Back to Sales</a>
-    @if($sale->customer)
-        <a href="{{ route('customers.show', $sale->customer) }}" class="text-slate-500">{{ $sale->customer->name }}'s balance</a>
-    @endif
     <a href="{{ route('pos.index') }}" class="text-brand-600">New Sale</a>
 </div>
 </div>

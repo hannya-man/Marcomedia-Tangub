@@ -20,6 +20,7 @@ class RecordActivity
         'sales.void', 'returns.store',
         'inventory.mark-damaged', 'stock.loss', 'stock.write-off-board', 'stock.count', 'physical-counts.store',
         'users.destroy', 'users.two-factor.reset',
+        'reports.sheet-link',   // sales figures readable by anyone holding the link
     ];
 
     public function handle(Request $request, Closure $next): Response

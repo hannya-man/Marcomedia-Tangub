@@ -1,10 +1,14 @@
 <?php
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
+use App\Models\Material;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Sale;
 use App\Models\User;
+use App\Services\Inventory\BatchInventoryService;
+use App\Services\Sales\SalesReport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\Feature\Concerns\UsesTwoFactor;
@@ -82,11 +86,107 @@ class ReturnsAndReportTest extends TestCase
         $this->get(route('reports.sales', ['period' => 'day', 'date' => now()->subDay()->toDateString()]))->assertOk()->assertSee('Nothing sold.');
         $this->get(route('reports.sales', ['period' => 'fortnight']))->assertSessionHasErrors('period');
 
-        $csv = $this->get(route('reports.sales.download', ['period' => 'month']))->assertOk()->streamedContent();
-        foreach (['"Completed sales",1', '"Sales total",300', 'Cash,1,300', 'GCash,1,50', '"Test Shirt",Medium', '"Cora Cashier",1,300'] as $row) {
+        $csv = $this->get(route('reports.sales.download', ['format' => 'csv', 'period' => 'month']))->assertOk()->streamedContent();
+        foreach (['"Completed sales",1', '"Sales total",300', 'Cash,1,300', 'GCash,1,50', '"Test Shirt",Medium', '"Cora Cashier",1,2,300,300,0'] as $row) {
             $this->assertStringContainsString($row, $csv);
         }
         $this->actingAs($this->cashier)->get(route('reports.sales'))->assertRedirect(route('pos.index'));
+    }
+
+    public function test_the_excel_file_has_a_sheet_per_table_and_names_never_run_as_formulas(): void
+    {
+        [$shirt, $size] = $this->stocked(10);
+        $sale = $this->sell($shirt, $size, 2);
+        $sale->customer->update(['name' => '=HYPERLINK("http://example.com")']);
+        $this->actingAs($this->owner)->post(route('sales.complete', $sale));
+
+        $file = $this->get(route('reports.sales.download', ['period' => 'month']))->assertOk()
+            ->assertHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            ->baseResponse->getFile()->getPathname();
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($file));
+        $workbook = $zip->getFromName('xl/workbook.xml');
+        $sheets = array_values(SalesReport::TABLES);
+        foreach ($sheets as $i => $title) {
+            $this->assertStringContainsString('name="' . $title . '"', $workbook);
+            $xml = $zip->getFromName('xl/worksheets/sheet' . ($i + 1) . '.xml');
+            $this->assertNotFalse(simplexml_load_string($xml), "$title is good XML");
+            $this->assertStringNotContainsString('<f>', $xml);
+        }
+        $staff = $zip->getFromName('xl/worksheets/sheet' . (array_search('By staff', $sheets) + 1) . '.xml');
+        $this->assertStringContainsString('<t xml:space="preserve">Cora Cashier</t></is></c><c r="B2"><v>1</v></c><c r="C2"><v>2</v></c><c r="D2"><v>300</v>', $staff);
+        $this->assertStringContainsString('=HYPERLINK(&quot;http://example.com&quot;)', $zip->getFromName('xl/worksheets/sheet' . (array_search('Sales', $sheets) + 1) . '.xml'));
+        $zip->close();
+    }
+
+    public function test_one_persons_report_and_the_stock_behind_the_sales(): void
+    {
+        [$shirt, $size] = $this->stocked(10);
+        $sale = $this->sell($shirt, $size, 2);   // Cora: ₱300
+        $this->actingAs($this->owner)->post(route('sales.complete', $sale));
+        $this->actingAs($this->owner)->post(route('pos.store'), [
+            'items' => [['product_id' => $shirt->id, 'product_variant_id' => $size->id, 'quantity' => 1, 'unit_price' => 150]],
+            'payment_method' => 'cash', 'amount_paid' => 150,
+        ]);
+        $this->post(route('sales.complete', Sale::latest('id')->first()));   // Olive: ₱150
+
+        // Ink at ₱2 a ml: 40 ml used, 15 ml spilled, 45 ml left (under its reorder point of 50).
+        $ink = Material::create(['name' => 'Test Ink', 'unit' => 'ml', 'inventory_type' => 'continuous', 'stock_quantity' => 0, 'low_stock_threshold' => 50]);
+        app(BatchInventoryService::class)->recordOpeningStock($ink, 100, 'store', $this->cashier->id, 2);
+        $this->actingAs($this->cashier);
+        if (! $ink->activeBatch()->exists()) {
+            $this->post(route('stock.open-next', $ink));
+        }
+        $this->post(route('stock.pull', $ink), ['quantity' => 40])->assertSessionHas('success');
+        $this->post(route('stock.loss', $ink), ['quantity' => 15, 'reason' => 'Spilled'])->assertSessionHas('success');
+
+        $this->actingAs($this->owner)->get(route('reports.sales', ['period' => 'month']))->assertOk()
+            ->assertSeeInOrder(['Sales total', '₱450.00', 'What each person sold', 'Cora Cashier', '2', '₱300.00', 'Olive Owner', '1', '₱150.00'])
+            ->assertSeeInOrder(['Running low now', 'Test Ink', 'Continuous raw material', '45 ml', 'reorder at 50'])
+            ->assertSeeInOrder(['Continuous raw materials used', '₱80.00', 'Test Ink', '40 ml', 'Waste and rejected runs', '₱30.00', 'Test Ink', 'Damaged', '15 ml']);
+        $this->get(route('reports.sales', ['period' => 'month', 'user' => $this->cashier->id]))->assertOk()
+            ->assertSeeInOrder(['Sales total', '₱300.00', 'Showing Cora Cashier only', 'Every sale by Cora Cashier'])
+            ->assertDontSee('Olive Owner</td>', false);
+        $csv = $this->get(route('reports.sales.download', ['format' => 'csv', 'period' => 'month', 'user' => $this->cashier->id]))
+            ->assertDownload('sales-report-month-' . now()->startOfMonth()->toDateString() . '-cora-cashier.csv')->streamedContent();
+        $this->assertStringContainsString('"Continuous raw material","Test Ink",40,ml,80', $csv);
+        $this->assertStringNotContainsString('Olive Owner', $csv);
+    }
+
+    public function test_a_google_sheets_link_shows_one_table_until_it_is_turned_off(): void
+    {
+        [$shirt, $size] = $this->stocked(10);
+        $sale = $this->sell($shirt, $size, 2);
+        $this->actingAs($this->owner)->post(route('sales.complete', $sale));
+
+        $this->post(route('reports.sheet-link'))->assertSessionHas('success')->assertSessionHas('sheet_link');
+        $link = session('sheet_link');
+        $this->assertSame(64, strlen($this->owner->fresh()->sheet_token));   // only its hash is kept
+        $this->assertStringNotContainsString($this->owner->fresh()->sheet_token, $link);
+        $this->assertTrue(ActivityLog::where('action', 'reports.sheet-link')->sole()->needs_review);
+
+        auth()->logout();
+        $csv = $this->get("{$link}?table=staff&period=month")->assertOk()->assertHeader('Cache-Control', 'no-store, private')->streamedContent();
+        $this->assertStringStartsWith('Staff,Sales,"Items sold",Revenue', $csv);   // no Excel mark at the start
+        $this->assertStringContainsString('"Cora Cashier",1,2,300', $csv);
+        $this->get("{$link}?table=passwords")->assertNotFound();
+        $this->get(route('reports.sheet', str_repeat('a', 40)))->assertNotFound();
+
+        // A new link turns the old one off, and so does "Turn the link off".
+        $this->actingAs($this->owner)->post(route('reports.sheet-link'));
+        $newer = session('sheet_link');
+        $this->get($link)->assertNotFound();
+        $this->get($newer)->assertOk();
+        $this->delete(route('reports.sheet-link.destroy'))->assertSessionHas('success');
+        $this->get($newer)->assertNotFound();
+
+        // It works only while its owner is an owner, and cashiers can't make one.
+        $this->post(route('reports.sheet-link'));
+        $newest = session('sheet_link');
+        $this->owner->update(['role' => 'cashier']);
+        $this->get($newest)->assertNotFound();
+        $this->actingAs($this->cashier)->post(route('reports.sheet-link'))->assertRedirect(route('pos.index'));
+        $this->assertNull($this->cashier->fresh()->sheet_token);
     }
 
     public function test_a_password_the_owner_sets_needs_8_characters_and_ends_the_old_logins(): void

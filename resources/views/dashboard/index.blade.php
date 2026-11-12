@@ -7,7 +7,7 @@
 @endpush
 
 @section('content')
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
     <div class="bg-white rounded-xl border border-slate-200 p-5">
         <div class="flex items-center justify-between mb-2">
             <p class="text-xs text-slate-500 uppercase tracking-wide">Today's Sales</p>
@@ -33,15 +33,6 @@
             {{ $lowStockCount }} low · {{ $outOfStockCount }} out
         </p>
         <p class="text-xs text-slate-400 mt-1">Of {{ $totalStockItems }} materials and stocked items</p>
-    </a>
-    {{-- Down payments not paid off yet (utang) --}}
-    <a href="{{ route('customers.index') }}" class="block bg-white rounded-xl border border-slate-200 p-5 hover:border-brand-400 transition-colors">
-        <div class="flex items-center justify-between mb-2">
-            <p class="text-xs text-slate-500 uppercase tracking-wide">Owed to You</p>
-            <i data-lucide="wallet" class="w-4 h-4 text-brand-500"></i>
-        </div>
-        <p class="text-2xl font-semibold {{ $owed > 0 ? 'text-amber-600' : 'text-ink' }}">₱{{ number_format($owed, 2) }}</p>
-        <p class="text-xs text-slate-400 mt-1">{{ $owingSales }} {{ $owingSales === 1 ? 'sale' : 'sales' }} with a balance</p>
     </a>
 </div>
 

@@ -21,13 +21,6 @@ class Sale extends Model
     // amount_paid is the running total; these are the payments behind it (App\Services\Sales\SalePayments).
     public function payments() { return $this->hasMany(SalePayment::class)->orderBy('id'); }
 
-    // Still owed: part-paid, and not voided or archived.
-    public function scopeOwing($query)
-    {
-        return $query->whereIn('sales.status', ['pending', 'processing', 'completed'])
-            ->whereColumn('sales.amount_paid', '<', 'sales.total_amount');
-    }
-
     // Lines sold while out of stock that are still waiting for it (BackorderService).
     public function itemsOnOrder()
     {

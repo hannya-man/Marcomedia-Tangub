@@ -6,11 +6,14 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 // A spreadsheet download (CSV) that opens in Excel.
 class Csv
 {
-    public static function download(string $filename, iterable $rows): StreamedResponse
+    // $forExcel adds the mark Excel needs to read ₱ and ñ right; Google Sheets reads UTF-8 without it.
+    public static function download(string $filename, iterable $rows, bool $forExcel = true): StreamedResponse
     {
-        return response()->streamDownload(function () use ($rows) {
+        return response()->streamDownload(function () use ($rows, $forExcel) {
             $out = fopen('php://output', 'w');
-            fwrite($out, "\xEF\xBB\xBF");   // so Excel reads ₱ and ñ right
+            if ($forExcel) {
+                fwrite($out, "\xEF\xBB\xBF");
+            }
             foreach ($rows as $row) {
                 fputcsv($out, array_map([self::class, 'cell'], $row), ',', '"', '');
             }

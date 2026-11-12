@@ -35,6 +35,17 @@
          script, which recompiled styles in the browser on every single page
          load and caused a visible "unstyled/broken" flash on navigation. --}}
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+    {{-- Chrome and Edge start loading a page while the pointer rests on its link, so it opens at
+         once on the click. Not for pages that change something just by opening (Approvals marks
+         answers as seen), downloads, or logging out. Laravel ignores these early loads when it
+         remembers the last page (StartSession), so "back" after a form error still works. --}}
+    <script type="speculationrules">
+    { "prefetch": [{ "where": { "and": [
+        { "href_matches": "/*" },
+        { "not": { "href_matches": ["/logout", "/approvals*", "/*download*", "/two-factor*", "/verify-email*", "/reset-password*", "/reports/sheet*"] } },
+        { "not": { "selector_matches": "[data-no-skeleton], [download], [target=_blank]" } }
+    ] }, "eagerness": "moderate" }] }
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -130,14 +141,41 @@
             if (document.querySelector('[data-smooth-list]')) smoothList.load(location.href, { history: 'none' });
         });
 
+        // The skeleton (grey shapes, app.css): the content column shows it from the moment a link or
+        // form is used until the next page is drawn, and the new page starts with it until Alpine
+        // and the icons are ready. A file download (data-no-skeleton, /download) never leaves the
+        // page, so it gets none; anything stuck (the network gave up) clears after 20 seconds.
+        window.skeleton = {
+            timer: null,
+            on() {
+                document.getElementById('page-content')?.classList.add('skeleton');
+                clearTimeout(this.timer);
+                this.timer = setTimeout(() => this.off(), 20000);
+            },
+            off() {
+                clearTimeout(this.timer);
+                document.getElementById('page-content')?.classList.remove('skeleton');
+            },
+        };
+        const leavesPage = (el, url) => !el.closest('[data-no-skeleton]') && el.target !== '_blank' && !url.pathname.includes('/download');
+        document.addEventListener('alpine:initialized', () => requestAnimationFrame(() => skeleton.off()));
+        window.addEventListener('load', () => skeleton.off());   // Alpine didn't load (offline)
+        window.addEventListener('pageshow', (e) => { if (e.persisted) skeleton.off(); });   // Back, from the browser's memory
+
         document.addEventListener('click', (e) => {
-            if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.shiftKey) return;
+            if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
             const link = e.target.closest('a[href]');
             if (link && link.origin === window.location.origin && !link.hasAttribute('download') && link.target !== '_blank') {
                 loadingBar.start();
+                const samePage = link.pathname === location.pathname && link.search === location.search && link.hash;
+                if (!samePage && leavesPage(link, link)) skeleton.on();
             }
         });
-        document.addEventListener('submit', (e) => { if (!e.defaultPrevented) loadingBar.start(); });
+        document.addEventListener('submit', (e) => {
+            if (e.defaultPrevented) return;
+            loadingBar.start();
+            if (leavesPage(e.target, new URL(e.target.getAttribute('action') || location.href, location.href))) skeleton.on();
+        });
     </script>
     @stack('scripts-head')
 </head>
@@ -188,10 +226,6 @@
             {{-- A sale's own page (pos.receipt) belongs with Sales --}}
             <a href="{{ route('sales.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('sales.*', 'pos.receipt') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
                 <i data-lucide="banknote" class="w-4 h-4"></i><span>Sales</span>
-            </a>
-            {{-- Who still owes on a down payment (utang) --}}
-            <a href="{{ route('customers.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm {{ request()->routeIs('customers.*') ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}">
-                <i data-lucide="wallet" class="w-4 h-4"></i><span>Balances (utang)</span>
             </a>
             @endif
             @if(auth()->user()->role === 'cashier')
@@ -276,7 +310,8 @@
     </aside>
 
     {{-- ===================== MAIN COLUMN ===================== --}}
-    <div class="flex-1 min-w-0 flex flex-col w-full">
+    {{-- Drawn as a skeleton until the page is ready (window.skeleton) --}}
+    <div id="page-content" class="skeleton flex-1 min-w-0 flex flex-col w-full">
         <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8">
             <div class="flex items-center gap-3">
                 <button @click="mobileNavOpen = true" class="lg:hidden w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600">

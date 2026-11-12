@@ -26,6 +26,10 @@ Route::get('/', function () {
     };
 });
 
+// What Google Sheets fetches for an owner's sales report link (=IMPORTDATA): no login, the secret is the link.
+Route::get('/reports/sheet/{token}', [\App\Http\Controllers\ReportController::class, 'sheet'])
+    ->middleware('throttle:30,1')->where('token', '[A-Za-z0-9]{40}')->name('reports.sheet');
+
 Route::middleware(['auth', 'no-cache'])->group(function () {
 
     // Two-step verification (an authenticator app's code after the password). Open even to an
@@ -84,6 +88,8 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         // Looking back: what sold, every shift with its cash count, and everyone's activity.
         Route::get('/reports/sales', [\App\Http\Controllers\ReportController::class, 'sales'])->name('reports.sales');
         Route::get('/reports/sales/download', [\App\Http\Controllers\ReportController::class, 'download'])->name('reports.sales.download');
+        Route::post('/reports/sheet-link', [\App\Http\Controllers\ReportController::class, 'makeSheetLink'])->name('reports.sheet-link');
+        Route::delete('/reports/sheet-link', [\App\Http\Controllers\ReportController::class, 'stopSheetLink'])->name('reports.sheet-link.destroy');
         Route::get('/shifts', [\App\Http\Controllers\ShiftController::class, 'index'])->name('shifts.index');
         Route::get('/shifts/{shift}', [\App\Http\Controllers\ShiftController::class, 'show'])->name('shifts.show');
         Route::get('/activity', [\App\Http\Controllers\ActivityController::class, 'index'])->name('activity.index');
@@ -113,11 +119,8 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::get('/pos/receipt/{sale}', [POSController::class, 'receipt'])->name('pos.receipt');
         Route::get('/pos/customer-screen', [POSController::class, 'customerScreen'])->name('pos.customer-screen');
 
-        // Paying what a sale still owes (each payment kept with its sale), and who owes what.
+        // Paying what a sale still owes (each payment kept with its sale).
         Route::post('/sales/{sale}/payments', [\App\Http\Controllers\SalePaymentController::class, 'store'])->name('sales.payments.store');
-        Route::get('/customers', [\App\Http\Controllers\CustomerController::class, 'index'])->name('customers.index');
-        Route::get('/customers/{customer}', [\App\Http\Controllers\CustomerController::class, 'show'])->name('customers.show');
-        Route::patch('/customers/{customer}', [\App\Http\Controllers\CustomerController::class, 'update'])->name('customers.update');
 
         Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');
         // Adding or editing a product (its details, sizes, prices and what each size is made of): an

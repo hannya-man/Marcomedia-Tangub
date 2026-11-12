@@ -760,11 +760,14 @@ class BatchInventoryService
 
         return function (Collection $stocks, float $w, float $h, int $units = 1) use (&$piecesBySheets, &$availableByPiece): ?array {
             $sheets = $stocks->pluck('id')->sort()->implode(',');
-            $options = SheetYield::options($piecesBySheets[$sheets] ??= $this->piecesOf($stocks), $w, $h);
+            if (! isset($piecesBySheets[$sheets])) {
+                $piecesBySheets[$sheets] = $this->piecesOf($stocks);
+                $availableByPiece += $this->cutAvailableFor($piecesBySheets[$sheets]);
+            }
+            $options = SheetYield::options($piecesBySheets[$sheets], $w, $h);
             $available = [];
             foreach ($options as $option) {
-                $id = $option['piece']->id;
-                $available[$id] = $availableByPiece[$id] ??= $this->cutAvailable($option['piece']);
+                $available[$option['piece']->id] = $availableByPiece[$option['piece']->id];
             }
 
             return SheetYield::best($options, $available, $units);
@@ -783,9 +786,24 @@ class BatchInventoryService
     // Pieces the store can supply now: the cut ones, and the whole boards it can still cut into them.
     public function cutAvailable(Material $piece): int
     {
-        $whole = $this->wholeSheets($piece->cut_from_id)->count();
+        return $this->cutAvailableFor(collect([$piece]))[$piece->id];
+    }
 
-        return (int) floor($this->storeAvailable($piece->id) + $whole * (int) $piece->cut_yield + self::EPSILON);
+    // cutAvailable for many pieces in two queries: [piece id => pieces]. Online each query is a trip
+    // to the database, and one pair per piece made Billing/POS take ~70 of them.
+    public function cutAvailableFor(Collection $pieces): array
+    {
+        if ($pieces->isEmpty()) {
+            return [];
+        }
+        $cut = InventoryBatch::whereIn('material_id', $pieces->pluck('id'))->where(fn ($q) => $this->atTheCounter($q))
+            ->groupBy('material_id')->selectRaw('material_id, SUM(remaining_quantity) as qty')->pluck('qty', 'material_id');
+        $whole = $this->wholeSheets($pieces->pluck('cut_from_id')->unique()->all())
+            ->groupBy('material_id')->selectRaw('material_id, COUNT(*) as boards')->pluck('boards', 'material_id');
+
+        return $pieces->mapWithKeys(fn ($piece) => [$piece->id => (int) floor(
+            $this->q($cut[$piece->id] ?? 0) + (int) ($whole[$piece->cut_from_id] ?? 0) * (int) $piece->cut_yield + self::EPSILON
+        )])->all();
     }
 
     /**
@@ -900,9 +918,9 @@ class BatchInventoryService
     }
 
     // Whole boards or rolls in the store: sealed ones, and an opened one nothing was taken from.
-    private function wholeSheets(int $boardId)
+    private function wholeSheets(int|array $boardIds)
     {
-        return InventoryBatch::where('material_id', $boardId)->where('location', 'store')
+        return InventoryBatch::whereIn('material_id', (array) $boardIds)->where('location', 'store')
             ->where(function ($q) {
                 $q->where('status', 'unopened')
                     ->orWhere(function ($q) {
@@ -1109,14 +1127,13 @@ class BatchInventoryService
     // What the counter can use right now: the active batch plus sealed packs in the store.
     private function storeAvailable(int $materialId): float
     {
-        return $this->q(InventoryBatch::where('material_id', $materialId)
-            ->where(function ($q) {
-                $q->where('status', 'open')
-                    ->orWhere(function ($q) {
-                        $q->where('status', 'unopened')->where('location', 'store');
-                    });
-            })
-            ->sum('remaining_quantity'));
+        return $this->q(InventoryBatch::where('material_id', $materialId)->where(fn ($q) => $this->atTheCounter($q))->sum('remaining_quantity'));
+    }
+
+    // Batches the counter can take from: the active one, and sealed packs in the store.
+    private function atTheCounter($query)
+    {
+        return $query->where('status', 'open')->orWhere(fn ($q) => $q->where('status', 'unopened')->where('location', 'store'));
     }
 
     private function autoOpenNext(Material $material, ?int $userId): InventoryBatch

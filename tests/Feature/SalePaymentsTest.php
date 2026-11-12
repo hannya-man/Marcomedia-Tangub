@@ -13,7 +13,7 @@ use Tests\TestCase;
 
 /**
  * A sale's own payment history: the payment at the counter and each one after it, with how it was
- * paid, the reference, who took it and on which shift; and the customer balances (utang) built on it.
+ * paid, the reference, who took it and on which shift.
  */
 class SalePaymentsTest extends TestCase
 {
@@ -67,14 +67,16 @@ class SalePaymentsTest extends TestCase
             ->assertDontSee('Record a payment');
     }
 
-    public function test_the_counter_needs_a_customer_for_a_down_payment_and_gcash_cant_give_change(): void
+    public function test_a_down_payment_needs_no_customer_and_gcash_cant_give_change(): void
     {
         $this->actingAs($this->cashier);
-        $this->from(route('pos.index'))->post(route('pos.store'), $this->cart(200))
-            ->assertSessionHas('error', 'A down payment needs the customer: pick them, or add them as a new customer, so the balance shows under their name.');
         $this->from(route('pos.index'))->post(route('pos.store'), $this->cart(500, ['payment_method' => 'gcash']))
             ->assertSessionHas('error', "A GCash payment can't be more than the ₱450.00 owed. Enter ₱450.00, and send the rest back.");
         $this->assertSame(0, Sale::count());
+
+        // A down payment with no customer named stays pending, with the rest still owed.
+        $down = $this->ring($this->cashier, 200);
+        $this->assertSame(['pending', null, 200.0], [$down->status, $down->customer_id, (float) $down->amount_paid]);
 
         // Paid in full by GCash, with its reference number.
         $sale = $this->ring($this->cashier, 450, ['payment_method' => 'gcash', 'payment_reference' => '5551234']);
@@ -93,32 +95,6 @@ class SalePaymentsTest extends TestCase
         $this->post(route('sales.payments.store', $owing), ['amount' => 50, 'method' => 'cash'])
             ->assertSessionHas('error', "{$owing->invoice_number} is Voided. Payments are only taken on open sales.");
         $this->assertSame(1, $owing->payments()->count());
-    }
-
-    public function test_the_balances_page_lists_who_owes_and_a_customers_page_shows_every_purchase_and_payment(): void
-    {
-        $ana = $this->ring($this->cashier, 200, ['new_customer_name' => 'Ana Reyes']);
-        $this->travel(1)->hours();
-        $this->ring($this->cashier, 450, ['customer_id' => $ana->customer_id]);   // paid in full
-        $this->travel(1)->hours();
-        $this->ring($this->cashier, 450, ['new_customer_name' => 'Ben Cruz']);   // paid in full
-        $this->travel(1)->hours();
-        $this->post(route('sales.payments.store', $ana), ['amount' => 50, 'method' => 'cash']);
-
-        // Who owes, most first. Ben paid in full, so he's listed only with everyone.
-        $this->get(route('customers.index'))->assertOk()
-            ->assertSeeInOrder(['Owed to you', '₱200.00', 'Customers who owe', '1', 'Ana Reyes', '₱200.00', 'on 1 sale'])
-            ->assertDontSee('Ben Cruz');
-        $this->get(route('customers.index', ['all' => 1]))->assertSee('Ben Cruz')->assertSee('Paid up');
-
-        // Ana's page: what's still owed, sale by sale, and her whole history, newest first.
-        $this->get(route('customers.show', $ana->customer_id))->assertOk()
-            ->assertSeeInOrder(['Still owes', '₱200.00', 'Sales with a balance', $ana->invoice_number, 'Record payment', 'History'])
-            ->assertSeeInOrder(['History', 'Paid Cash', $ana->invoice_number, '− ₱50.00', 'Paid Cash', '− ₱450.00', 'Bought', '+ ₱450.00',
-                'Paid Cash', '− ₱200.00', 'Bought', $ana->invoice_number, '+ ₱450.00']);
-
-        $this->patch(route('customers.update', $ana->customer_id), ['name' => 'Ana R. Reyes', 'phone' => '0917 000 1111'])->assertSessionHas('success');
-        $this->assertSame('0917 000 1111', $ana->customer->fresh()->phone);
     }
 
     private function cart(float $paid, array $extra = []): array
