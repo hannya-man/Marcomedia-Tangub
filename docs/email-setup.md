@@ -81,7 +81,10 @@ After that, the login page shows **Forgot your password?**
 
 ## 5. Each person confirms their email
 
-A reset link only goes to an email its owner has confirmed, because the link opens the account.
+A reset link only goes to an email its owner has confirmed, because the link opens the account. The
+one exception is an account with two-step verification on (every owner): its link still goes out,
+because setting the new password also takes the code from the authenticator app. The lost-phone
+sign-in link always needs a confirmed email.
 
 1. The owner checks in **User Management** that each account's email is a real inbox that person can
    open (the old test addresses aren't).

@@ -13,7 +13,8 @@ use Throwable;
 
 /**
  * "Forgot your password?": a link to set a new one, by email. Only to an address its owner confirmed
- * (Profile): an account's email can be wrong or someone else's, and the link opens the account.
+ * (Profile), because an account's email can be wrong or someone else's, unless two-step verification is
+ * on: then the new-password page also asks for the app's code, so the inbox alone never opens the account.
  */
 class PasswordResetLinkController extends Controller
 {
@@ -36,7 +37,7 @@ class PasswordResetLinkController extends Controller
         $request->validate(['email' => ['required', 'email']]);
 
         $user = User::where('email', $request->input('email'))->first();
-        if ($user && $user->hasVerifiedEmail()) {
+        if ($user && ($user->hasVerifiedEmail() || $user->hasTwoFactor())) {
             try {
                 Password::sendResetLink(['email' => $user->email]);
             } catch (Throwable $e) {
@@ -46,6 +47,6 @@ class PasswordResetLinkController extends Controller
             }
         }
 
-        return back()->with('status', "If that email belongs to an account and was confirmed, a link to set a new password is on its way. Check your inbox, and Spam too.");
+        return back()->with('status', "If that email belongs to an account, a link to set a new password is on its way. Check your inbox, and Spam too. Nothing after 5 minutes? Ask an owner to set a new password for you in User Management.");
     }
 }

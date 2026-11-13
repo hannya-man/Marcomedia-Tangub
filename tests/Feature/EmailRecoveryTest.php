@@ -16,7 +16,8 @@ use Tests\TestCase;
 /**
  * Getting back in by email: a forgotten password (a link, plus the authenticator code when two-step
  * verification is on), and a lost phone (after the password, a sign-in link that turns two-step
- * verification off). Links only go to an email confirmed in Profile.
+ * verification off). Links only go to an email confirmed in Profile, except a password link to an account
+ * with two-step verification on, which still needs the app's code.
  */
 class EmailRecoveryTest extends TestCase
 {
@@ -106,7 +107,8 @@ class EmailRecoveryTest extends TestCase
 
     public function test_with_two_step_verification_the_new_password_also_takes_the_code(): void
     {
-        $owner = $this->withTwoFactor($this->user('admin'));
+        // The code guards the link, so it goes even to an email not confirmed yet.
+        $owner = $this->withTwoFactor($this->user('admin', confirmed: false));
         $this->post(route('password.email'), ['email' => $owner->email]);
         $token = $this->resetToken($owner);
 
