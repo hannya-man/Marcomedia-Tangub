@@ -2,9 +2,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\Sales\ReportWorkbook;
 use App\Services\Sales\SalesReport;
 use App\Support\Csv;
-use App\Support\Xlsx;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -33,7 +33,9 @@ class ReportController extends Controller
             . ($report->userId ? '-' . Str::slug((string) $report->staffName()) : '');
 
         if ($request->query('format', 'xlsx') === 'xlsx') {
-            return Xlsx::download("{$name}.xlsx", $report->tables());
+            $here = array_filter(['period' => $report->period, 'date' => $report->start->toDateString(), 'user' => $report->userId]);
+
+            return (new ReportWorkbook($report, route('reports.sales', $here), route('reports.sales', $here) . '#import'))->download("{$name}.xlsx");
         }
         $rows = [];
         foreach ($report->tables() as $title => $table) {

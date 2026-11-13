@@ -93,7 +93,7 @@ class ReturnsAndReportTest extends TestCase
         $this->actingAs($this->cashier)->get(route('reports.sales'))->assertRedirect(route('pos.index'));
     }
 
-    public function test_the_excel_file_has_a_sheet_per_table_and_names_never_run_as_formulas(): void
+    public function test_the_excel_file_is_a_dashboard_with_a_sheet_per_table_and_names_never_run_as_formulas(): void
     {
         [$shirt, $size] = $this->stocked(10);
         $sale = $this->sell($shirt, $size, 2);
@@ -106,17 +106,86 @@ class ReturnsAndReportTest extends TestCase
         $zip = new \ZipArchive();
         $this->assertTrue($zip->open($file));
         $workbook = $zip->getFromName('xl/workbook.xml');
-        $sheets = array_values(SalesReport::TABLES);
+        $sheets = ['Dashboard', ...array_values(array_diff(SalesReport::TABLES, ['Summary']))];
+        $xml = [];
         foreach ($sheets as $i => $title) {
             $this->assertStringContainsString('name="' . $title . '"', $workbook);
-            $xml = $zip->getFromName('xl/worksheets/sheet' . ($i + 1) . '.xml');
-            $this->assertNotFalse(simplexml_load_string($xml), "$title is good XML");
-            $this->assertStringNotContainsString('<f>', $xml);
+            $xml[$title] = $zip->getFromName('xl/worksheets/sheet' . ($i + 1) . '.xml');
+            $this->assertNotFalse(simplexml_load_string($xml[$title]), "$title is good XML");
         }
-        $staff = $zip->getFromName('xl/worksheets/sheet' . (array_search('By staff', $sheets) + 1) . '.xml');
-        $this->assertStringContainsString('<t xml:space="preserve">Cora Cashier</t></is></c><c r="B2"><v>1</v></c><c r="C2"><v>2</v></c><c r="D2"><v>300</v>', $staff);
-        $this->assertStringContainsString('=HYPERLINK(&quot;http://example.com&quot;)', $zip->getFromName('xl/worksheets/sheet' . (array_search('Sales', $sheets) + 1) . '.xml'));
+        foreach ([1, 2, 3] as $n) {
+            $this->assertNotFalse(simplexml_load_string($zip->getFromName("xl/charts/chart{$n}.xml")), "chart {$n}");
+        }
+
+        // The dashboard's totals are formulas over the sheets, with today's values until Excel works them out.
+        $this->assertMatchesRegularExpression('#<c r="A6" s="\d+"><f>SUM\(Sales!\$H\$2:\$H\$2\)</f><v>300</v></c>#', $xml['Dashboard']);
+        $this->assertStringContainsString('<f>SUM(&apos;Items sold&apos;!$J$2:$J$2)</f><v>2</v>', $xml['Dashboard']);
+        // Each table: real numbers, and a Total row that follows the filter.
+        $this->assertMatchesRegularExpression('#Cora Cashier</t></is></c><c r="B2" s="\d+"><v>1</v></c><c r="C2" s="\d+"><v>2</v></c><c r="D2" s="\d+"><v>300</v>#', $xml['By staff']);
+        $this->assertStringContainsString('<f>SUBTOTAL(109,H2:H2)</f><v>300</v>', $xml['Sales']);
+        // A name typed like a formula stays text.
+        $this->assertStringContainsString('t="inlineStr"><is><t xml:space="preserve">=HYPERLINK(&quot;http://example.com&quot;)</t>', $xml['Sales']);
+        $this->assertStringNotContainsString('<f>HYPERLINK("http://example.com")', $xml['Sales']);
         $zip->close();
+
+        // The Items sold sheet reads back in, ready to import (nothing new: that sale is in already).
+        $plan = $this->post(route('reports.import.check'), ['file' => new \Illuminate\Http\UploadedFile($file, 'report.xlsx', null, null, true)])->assertOk()->json();
+        $this->assertSame([], $plan['sales']);
+        $this->assertSame(["{$sale->invoice_number} is already in the system, so it was left out."], $plan['skipped']);
+    }
+
+    public function test_sales_import_from_a_sheet_dated_when_they_were_sold(): void
+    {
+        [$shirt, $size] = $this->stocked(10);
+        $csv = tempnam(sys_get_temp_dir(), 'imp');
+        $day = now()->subDays(3)->toDateString();
+        file_put_contents($csv, implode("\n", [
+            'Date,Time,Invoice,Staff,Customer,Item,Size or type,SKU,Quantity,Unit price,Paid by',
+            "{$day},9:30 AM,OR-1,Cora Cashier,Ana,Test Shirt,Medium,,2,150,Cash",
+            "{$day},9:30 AM,OR-1,Cora Cashier,Ana,,,{$size->sku},1,150,Cash",
+            "{$day},2:00 PM,OR-2,Nobody Known,,Test Shirt,Medium,,1,160,GCash",
+            "{$day},3:00 PM,OR-3,,,Mystery Item,,,1,50,Cash",
+            "{$day},3:00 PM,OR-3,,,Test Shirt,Medium,,1,150,Cash",
+            now()->addDay()->toDateString() . ',9:00 AM,OR-4,,,Test Shirt,Medium,,1,150,Cash',
+        ]));
+        $file = fn () => new \Illuminate\Http\UploadedFile($csv, 'paper sales.csv', 'text/csv', null, true);
+
+        $this->actingAs($this->owner);
+        $plan = $this->post(route('reports.import.check'), ['file' => $file()])->assertOk()->json();
+        $this->assertSame(['OR-1', 'OR-2'], array_column($plan['sales'], 'invoice'));
+        $this->assertSame(610, (int) $plan['total']);
+        $this->assertSame([$this->cashier->id, $this->owner->id], array_column($plan['sales'], 'staff_id'));   // unknown staff: the importer
+        $this->assertSame([
+            'Row 5: No product called "Mystery Item". Check the name or SKU on the Products page.',
+            'So OR-3 (rows 6) was left out too: a sale goes in whole.',
+            'Row 7: ' . now()->addDay()->toDateString() . ' 09:00:00 hasn\'t happened yet.',
+        ], $plan['skipped']);
+
+        $result = $this->postJson(route('reports.import.run'), ['sales' => $plan['sales']])->assertOk()->json();
+        $this->assertSame([], $result['errors']);
+        $this->assertCount(2, $result['imported']);
+
+        $first = Sale::where('notes', 'like', '%(sheet invoice OR-1)%')->sole();
+        $this->assertSame(['completed', 450.0, 450.0, null], [$first->status, (float) $first->total_amount, (float) $first->amount_paid, $first->shift_id]);
+        $this->assertSame("{$day} 09:30", $first->created_at->format('Y-m-d H:i'));
+        $this->assertSame("{$day} 09:30", $first->payments()->sole()->created_at->format('Y-m-d H:i'));
+        $this->assertSame('INV-' . str_replace('-', '', $day) . '-0001', $first->invoice_number);
+        $this->assertSame([$this->cashier->id, 'Ana'], [$first->user_id, $first->customer->name]);
+        $this->assertSame(6, $size->fresh()->stock_quantity);   // 10 - 3 - 1
+        $this->assertSame('gcash', Sale::where('notes', 'like', '%(sheet invoice OR-2)%')->sole()->payment_method);
+        $this->assertTrue(ActivityLog::where('action', 'sales.import')->sole()->needs_review);
+
+        // The same file again adds nothing.
+        $again = $this->post(route('reports.import.check'), ['file' => $file()])->json();
+        $this->assertSame([], $again['sales']);
+        $this->postJson(route('reports.import.run'), ['sales' => $plan['sales']])->assertOk()->assertJsonCount(0, 'imported')->assertJsonCount(2, 'errors');
+        $this->assertSame(2, Sale::count());
+
+        // A file that isn't a sales sheet, and cashiers, are turned away.
+        $this->post(route('reports.import.check'), ['file' => \Illuminate\Http\UploadedFile::fake()->createWithContent('notes.txt', 'hello')])
+            ->assertStatus(422)->assertJson(['message' => 'Import an Excel file (.xlsx) or a CSV file (.csv).']);
+        $this->get(route('reports.import.template'))->assertOk()->assertDownload('sales-import-template.xlsx');
+        $this->actingAs($this->cashier)->post(route('reports.import.check'), ['file' => $file()])->assertRedirect(route('pos.index'));
     }
 
     public function test_one_persons_report_and_the_stock_behind_the_sales(): void

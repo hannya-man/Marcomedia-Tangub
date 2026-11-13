@@ -61,10 +61,8 @@
                     </p>
 
                     <div x-show="!recovery">
-                        <label for="code" class="sr-only">6-digit code</label>
-                        <input id="code" type="text" name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autocomplete="one-time-code"
-                               :disabled="recovery" {{ $errors->has('code') ? 'autofocus' : '' }} placeholder="123 456"
-                               class="{{ $codeField }} text-2xl tracking-[0.35em] font-semibold {{ $errors->has('code') ? $bad : $ok }}">
+                        <p class="sr-only">6-digit code</p>
+                        @include('partials.code-boxes', ['disabled' => 'recovery', 'focus' => $errors->has('code'), 'invalid' => $errors->has('code')])
                         @error('code')
                             <p class="text-xs text-red-500 mt-1.5 text-center">{{ $message }}</p>
                         @enderror
@@ -86,7 +84,7 @@
                             Use a recovery code instead
                         </button>
                         <button type="button" class="text-brand-600 hover:underline" x-show="recovery" style="display:none;"
-                                @click="recovery = false; $nextTick(() => document.getElementById('code').focus())">
+                                @click="recovery = false; $nextTick(() => document.querySelector('input[autocomplete=one-time-code]').focus())">
                             Use the code from my app
                         </button>
                     </div>

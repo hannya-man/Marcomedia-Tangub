@@ -88,6 +88,9 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         // Looking back: what sold, every shift with its cash count, and everyone's activity.
         Route::get('/reports/sales', [\App\Http\Controllers\ReportController::class, 'sales'])->name('reports.sales');
         Route::get('/reports/sales/download', [\App\Http\Controllers\ReportController::class, 'download'])->name('reports.sales.download');
+        Route::get('/reports/import/template', [\App\Http\Controllers\SaleImportController::class, 'template'])->name('reports.import.template');
+        Route::post('/reports/import/check', [\App\Http\Controllers\SaleImportController::class, 'check'])->name('reports.import.check');
+        Route::post('/reports/import/run', [\App\Http\Controllers\SaleImportController::class, 'run'])->name('reports.import.run');
         Route::post('/reports/sheet-link', [\App\Http\Controllers\ReportController::class, 'makeSheetLink'])->name('reports.sheet-link');
         Route::delete('/reports/sheet-link', [\App\Http\Controllers\ReportController::class, 'stopSheetLink'])->name('reports.sheet-link.destroy');
         Route::get('/shifts', [\App\Http\Controllers\ShiftController::class, 'index'])->name('shifts.index');

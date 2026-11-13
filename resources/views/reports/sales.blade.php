@@ -68,10 +68,10 @@
         </div>
     </div>
 
-    {{-- Taking the report out: Excel, CSV, or a Google Sheet that keeps itself up to date --}}
-    <div class="{{ $card }} p-4" x-data="{ sheets: @js(session()->has('sheet_link')) }">
+    {{-- Taking the report out (Excel, CSV, a Google Sheet that keeps itself up to date) and bringing sales in --}}
+    <div id="import" class="{{ $card }} p-4 scroll-mt-6" x-data="{ panel: @js(session()->has('sheet_link') ? 'sheets' : null) }" x-init="if (location.hash === '#import') panel = 'import'">
         <div class="flex flex-wrap items-center gap-2">
-            <p class="text-sm font-medium text-ink mr-auto">Save or share this report{{ $staffName ? " ({$staffName} only)" : '' }}</p>
+            <p class="text-sm font-medium text-ink mr-auto">Export or import{{ $staffName ? " ({$staffName} only)" : '' }}</p>
             <a href="{{ route('reports.sales.download', ['format' => 'xlsx'] + $here) }}" data-no-skeleton
                class="text-sm px-4 py-2 rounded-lg flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700">
                 <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Excel file
@@ -80,12 +80,58 @@
                class="text-sm px-4 py-2 border border-slate-300 text-slate-600 rounded-lg flex items-center gap-1.5 bg-white hover:bg-slate-50">
                 <i data-lucide="download" class="w-4 h-4"></i> CSV file
             </a>
-            <button type="button" @click="sheets = !sheets" :aria-expanded="sheets"
+            <button type="button" @click="panel = panel === 'sheets' ? null : 'sheets'" :aria-expanded="panel === 'sheets'"
                     class="text-sm px-4 py-2 border border-slate-300 text-slate-600 rounded-lg flex items-center gap-1.5 bg-white hover:bg-slate-50">
                 <i data-lucide="sheet" class="w-4 h-4"></i> Google Sheets
             </button>
+            <button type="button" @click="panel = panel === 'import' ? null : 'import'" :aria-expanded="panel === 'import'"
+                    class="text-sm px-4 py-2 rounded-lg flex items-center gap-1.5 bg-brand-600 text-white hover:bg-brand-700">
+                <i data-lucide="upload" class="w-4 h-4"></i> Import
+            </button>
         </div>
-        <div x-show="sheets" style="display:none;" class="mt-4 pt-4 border-t border-slate-100 text-sm text-slate-600 space-y-3">
+
+        {{-- Import: check the file and see what it adds, then send it a few sales at a time --}}
+        <div x-show="panel === 'import'" style="display:none;" x-data="saleImport()" class="mt-4 pt-4 border-t border-slate-100 text-sm text-slate-600 space-y-3">
+            <p>Bring in sales from a sheet, like sales written on paper while offline: one row per item sold. Each sale takes its stock like a sale at the counter and is dated when it was sold.
+                <a href="{{ route('reports.import.template') }}" data-no-skeleton class="text-brand-600 hover:underline font-medium">Download the template</a>
+                (the <strong>Items sold</strong> sheet of an Excel download works too; sales already in the system are skipped).</p>
+            <form @submit.prevent="check($refs.file)" class="flex flex-wrap items-center gap-2" data-no-skeleton>
+                <input x-ref="file" type="file" accept=".xlsx,.csv" required aria-label="File to import"
+                       class="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-slate-700">
+                <button class="px-4 py-2 rounded-lg bg-ink text-white disabled:opacity-40" :disabled="busy">
+                    <span x-text="busy && !plan ? 'Checking…' : 'Check the file'">Check the file</span>
+                </button>
+            </form>
+            <p x-show="message" x-text="message" class="rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2"></p>
+            <template x-if="plan">
+                <div class="rounded-lg border border-slate-200 p-4 space-y-3">
+                    <p class="text-ink font-medium" x-text="plan.sales.length
+                        ? `Ready: ${plan.sales.length} ${plan.sales.length === 1 ? 'sale' : 'sales'}, ${peso(plan.total)} in all.`
+                        : 'Nothing to import.'"></p>
+                    <ul class="max-h-48 overflow-y-auto divide-y divide-slate-100">
+                        <template x-for="sale in plan.sales" :key="sale.at + (sale.invoice || '') + sale.staff">
+                            <li class="py-1.5 flex justify-between gap-3">
+                                <span class="min-w-0 truncate" x-text="`${sale.at.slice(0, 16)} · ${sale.staff}${sale.customer ? ' · ' + sale.customer : ''} · ${sale.lines.map((l) => l.quantity + ' x ' + l.name).join(', ')}`"></span>
+                                <span class="whitespace-nowrap" x-text="peso(sale.total)"></span>
+                            </li>
+                        </template>
+                    </ul>
+                    <div x-show="plan.skipped.length" class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-800">
+                        <p class="font-medium">Left out:</p>
+                        <template x-for="why in plan.skipped"><p x-text="why"></p></template>
+                    </div>
+                    <div x-show="total" class="h-2 rounded-full bg-slate-100"><div class="h-2 rounded-full bg-brand-500 transition-all" :style="`width: ${Math.round(done / total * 100)}%`"></div></div>
+                    <p x-show="total" x-text="finished ? `Imported ${imported} ${imported === 1 ? 'sale' : 'sales'}.` : `Importing… ${done} of ${total}`" class="text-ink"></p>
+                    <template x-for="why in errors"><p class="text-red-700" x-text="why"></p></template>
+                    <div class="flex gap-2">
+                        <button type="button" x-show="plan.sales.length && !total" @click="run()" class="px-4 py-2 rounded-lg bg-brand-600 text-white"
+                                x-text="`Import ${plan.sales.length} ${plan.sales.length === 1 ? 'sale' : 'sales'}`"></button>
+                        <a x-show="finished" href="{{ route('reports.sales', $here) }}" class="px-4 py-2 rounded-lg bg-ink text-white">See the report</a>
+                    </div>
+                </div>
+            </template>
+        </div>
+        <div x-show="panel === 'sheets'" style="display:none;" class="mt-4 pt-4 border-t border-slate-100 text-sm text-slate-600 space-y-3">
             @if(session('sheet_link'))
                 <div x-data="{ table: 'items', period: 'month', copied: false, link: @js(session('sheet_link')),
                               get formula() { return `=IMPORTDATA(&quot;${this.link}?table=${this.table}&amp;period=${this.period}&quot;)` } }"
@@ -353,6 +399,44 @@
 </div>
 
 <script>
+// Import: the file is checked first (what it would add, what it leaves out and why), then the sales
+// go in 5 at a time, so no request comes near the server's 30-second limit.
+function saleImport() {
+    const post = async (url, body, json) => {
+        const res = await fetch(url, { method: 'POST', body: json ? JSON.stringify(body) : body, credentials: 'same-origin',
+            headers: { 'X-CSRF-TOKEN': @js(csrf_token()), 'Accept': 'application/json', ...(json ? { 'Content-Type': 'application/json' } : {}) } });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || 'Something went wrong. Try again, or log in again if this page sat open a long time.');
+        return data;
+    };
+    return {
+        busy: false, plan: null, message: '', total: 0, done: 0, imported: 0, errors: [], finished: false,
+        peso: (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        async check(input) {
+            if (!input.files.length) return;
+            Object.assign(this, { busy: true, plan: null, message: '', total: 0, done: 0, imported: 0, errors: [], finished: false });
+            const form = new FormData();
+            form.append('file', input.files[0]);
+            try { this.plan = await post(@js(route('reports.import.check')), form, false); }
+            catch (e) { this.message = e.message; }
+            this.busy = false;
+        },
+        async run() {
+            const sales = this.plan.sales;
+            Object.assign(this, { busy: true, total: sales.length, done: 0 });
+            for (let i = 0; i < sales.length; i += 5) {
+                try {
+                    const result = await post(@js(route('reports.import.run')), { sales: sales.slice(i, i + 5) }, true);
+                    this.imported += result.imported.length;
+                    this.errors.push(...result.errors);
+                } catch (e) { this.errors.push(e.message); }
+                this.done = Math.min(i + 5, sales.length);
+            }
+            Object.assign(this, { busy: false, finished: true });
+        },
+    };
+}
+
 new Chart(document.getElementById('series-chart'), {
     type: 'bar',
     data: { labels: @json($series['labels']), datasets: [{ data: @json($series['values']), backgroundColor: '#1f8ba0', borderRadius: 6 }] },

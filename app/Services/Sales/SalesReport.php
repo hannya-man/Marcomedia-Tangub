@@ -287,11 +287,11 @@ class SalesReport
             'sales' => [['Date', 'Time', 'Invoice', 'Staff', 'Customer', 'Items', 'Discount', 'Total', 'Paid by'],
                 ...$this->salesList()->get()->map(fn ($s) => [$time($s->created_at)->toDateString(), $time($s->created_at)->format('g:i A'),
                     $s->invoice_number, $s->staff, $s->customer, (int) $s->items, $money($s->discount_amount), $money($s->total_amount),
-                    $s->payment_method === 'gcash' ? 'GCash' : ucfirst((string) $s->payment_method)])],
-            'items' => [['Date', 'Time', 'Invoice', 'Staff', 'Customer', 'Item', 'Size or type', 'SKU', 'Category', 'Quantity', 'Unit price', 'Line total'],
+                    $this->paidBy($s->payment_method)])],
+            'items' => [['Date', 'Time', 'Invoice', 'Staff', 'Customer', 'Item', 'Size or type', 'SKU', 'Category', 'Quantity', 'Unit price', 'Line total', 'Paid by'],
                 ...$this->itemLines()->map(fn ($l) => [$time($l->created_at)->toDateString(), $time($l->created_at)->format('g:i A'),
                     $l->invoice_number, $l->staff, $l->customer, $l->item_name, $l->variant_name, $l->sku, $l->category,
-                    (int) $l->quantity, $money($l->unit_price), $money($l->subtotal)])],
+                    (int) $l->quantity, $money($l->unit_price), $money($l->subtotal), $this->paidBy($l->payment_method)])],
             'by_item' => [['Item', 'Size or type', 'SKU', 'Quantity', 'Revenue'],
                 ...$this->byItem()->map(fn ($i) => [$i->name, $i->variant_name, $i->sku, (int) $i->quantity, $money($i->revenue)])],
             'staff' => [['Staff', 'Sales', 'Items sold', 'Revenue', 'Average sale', 'Discounts given'],
@@ -301,7 +301,7 @@ class SalesReport
             'categories' => [['Category', 'Revenue (before discounts)'],
                 ...$this->byCategory()->map(fn ($c) => [$c->name, $money($c->revenue)])],
             'payments' => [['Paid by', 'Payments', 'Amount'],
-                ...$this->payments()->map(fn ($p, $method) => [$method === 'gcash' ? 'GCash' : ucfirst($method), (int) $p->count, $money($p->total)])->values()],
+                ...$this->payments()->map(fn ($p, $method) => [$this->paidBy($method), (int) $p->count, $money($p->total)])->values()],
             'by_time' => (function () use ($money) {
                 $series = $this->series();
 
@@ -332,6 +332,11 @@ class SalesReport
         return $this->userId ? DB::table('users')->where('id', $this->userId)->value('name') : null;
     }
 
+    private function paidBy(?string $method): string
+    {
+        return \App\Models\SalePayment::METHODS[$method] ?? ucfirst((string) $method);
+    }
+
     private function typeName(?string $type): string
     {
         return $type === 'continuous' ? 'Continuous raw material' : 'Discrete material';
@@ -347,7 +352,7 @@ class SalesReport
             ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
             ->select('sales.created_at', 'sales.invoice_number', 'users.name as staff', 'customers.name as customer',
                 'sale_items.item_name', 'sale_items.variant_name', DB::raw('COALESCE(pv.sku, products.sku) as sku'),
-                'categories.name as category', 'sale_items.quantity', 'sale_items.unit_price', 'sale_items.subtotal')
+                'categories.name as category', 'sale_items.quantity', 'sale_items.unit_price', 'sale_items.subtotal', 'sales.payment_method')
             ->orderByDesc('sales.created_at')->orderByDesc('sale_items.id')->get();
     }
 

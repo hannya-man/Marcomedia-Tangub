@@ -1,148 +1,68 @@
 <?php
 namespace App\Http\Controllers;
 
-use App\Models\Material;
+use App\Models\InventoryMovement;
 use App\Models\Sale;
 use App\Models\Shift;
-use App\Models\SaleItem;
-use App\Models\ProductVariant;
-use Illuminate\Support\Facades\DB;
+use App\Services\Sales\SalesReport;
+use Carbon\CarbonImmutable;
 
+// The owner's dashboard: today against yesterday, this month against last month, what sells and who
+// sells it (SalesReport, so the numbers match the Sales Report), what's running low, and the latest
+// sales and stock changes.
 class DashboardController extends Controller
 {
     public function index()
     {
-        $today = now()->toDateString();
+        $today = CarbonImmutable::today();
+        $day = new SalesReport('day', $today);
+        $month = new SalesReport('month', $today);
+        // Today and this month so far, each against the same stretch before it (yesterday up to this
+        // time, last month up to this day): a whole day or month against part of one always looks down.
+        $now = CarbonImmutable::now();
+        $before = function ($from, $to) {
+            $row = Sale::where('status', 'completed')->whereBetween('created_at', [$from, $to])
+                ->selectRaw('COUNT(*) as count, COALESCE(SUM(total_amount), 0) as revenue')->first();
 
-        $todaySales = Sale::whereDate('created_at', $today)
-            ->where('status', 'completed')
-            ->sum('total_amount');
+            return ['count' => (int) $row->count, 'revenue' => (float) $row->revenue, 'average' => $row->count ? (float) $row->revenue / $row->count : 0.0];
+        };
+        $totals = [
+            'today' => $day->totals(),
+            'yesterday' => $before($today->subDay(), $now->subDay()),
+            'month' => $month->totals(),
+            'lastMonth' => $before($today->startOfMonth()->subMonthNoOverflow(), $now->subMonthNoOverflow()),
+        ];
+        $low = $month->lowStock();
 
-        $todayTransactions = Sale::whereDate('created_at', $today)
-            ->where('status', 'completed')
-            ->count();
-
-        $monthSales = Sale::whereMonth('created_at', now()->month)
-            ->whereYear('created_at', now()->year)
-            ->where('status', 'completed')
-            ->sum('total_amount');
-
-        // Low stock / out of stock variants — now driven by SELLABLE
-        // stock (stock minus damaged), not raw stock_quantity.
-        $lowStockVariants = ProductVariant::with('product')
-            ->whereRaw('(stock_quantity - damaged_quantity) <= low_stock_threshold')
-            ->where('status', 'active')
-            ->orderByRaw('stock_quantity - damaged_quantity')
-            ->limit(10)
-            ->get();
-
-        // What's low or out: the materials (what made-to-order jobs are made from) and the items that
-        // keep a stock count. A made-to-order size has no count of its own, so it is never "out"
-        // (counting them showed most of the catalog as out of stock).
-        $stockStates = Material::whereNull('archived_at')->whereNull('cut_from_id')->with('cutSizes')->get()
-            ->map(fn ($m) => $m->stock_status)
-            ->concat(ProductVariant::where('status', 'active')
-                ->whereHas('product', fn ($q) => $q->where('status', 'active')->where('track_inventory', true))
-                ->get()->map(fn ($v) => $v->stock_status));
-        $outOfStockCount = $stockStates->filter(fn ($s) => $s === 'out_of_stock')->count();
-        $lowStockCount = $stockStates->filter(fn ($s) => $s === 'low_stock')->count();
-        $totalStockItems = $stockStates->count();
-
-        // Sales trend, last 7 days
-        $salesTrend = Sale::selectRaw('DATE(created_at) as date, SUM(total_amount) as total')
-            ->where('status', 'completed')
-            ->where('created_at', '>=', now()->subDays(6)->startOfDay())
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get();
-
-        // Top 10 fast movers TODAY — grouped by product_id, not item_name.
-        // Grouping by name silently merges two different products that
-        // happen to share a name, and splits history for a renamed product.
-        $topMovers = DB::table('sale_items')
-            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-            ->join('products', 'products.id', '=', 'sale_items.product_id')
-            ->whereDate('sales.created_at', $today)
-            ->where('sales.status', 'completed')
-            ->select('products.id', 'products.name', DB::raw('SUM(sale_items.quantity) as qty_sold'), DB::raw('SUM(sale_items.subtotal) as revenue'))
-            ->groupBy('products.id', 'products.name')
-            ->orderByDesc('qty_sold')
-            ->limit(10)
-            ->get();
-
-        // Bottom 5 slow movers TODAY — starts from the products table and
-        // LEFT JOINs sales onto it, so a product with zero sales today
-        // still shows up with qty_sold = 0. Starting from sale_items
-        // instead would silently drop the slowest movers of all (the ones
-        // that sold nothing), since they'd have no row to find.
-        $soldToday = DB::table('sale_items')
-            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-            ->whereDate('sales.created_at', $today)
-            ->where('sales.status', 'completed')
-            ->select('sale_items.product_id', DB::raw('SUM(sale_items.quantity) as qty_sold'))
-            ->groupBy('sale_items.product_id');
-
-        $slowMovers = DB::table('products')
-            ->leftJoinSub($soldToday, 'sold', 'sold.product_id', '=', 'products.id')
-            ->where('products.status', 'active')
-            ->select('products.id', 'products.name', DB::raw('COALESCE(sold.qty_sold, 0) as qty_sold'))
-            ->orderBy('qty_sold')
-            ->limit(5)
-            ->get();
-
-        $recentSales = Sale::with('user', 'items')->latest()->limit(8)->get();
-
-        // Replaces the old hardcoded "Recent Activity" feed with real stock movement history.
-        $recentMovements = \App\Models\InventoryMovement::with('variant.product', 'user')
-            ->latest('created_at')->limit(6)->get();
-
-        // Real Weekly / Monthly / Yearly chart data — replaces the old
-        // hardcoded placeholder numbers on the Sales Overview chart. One query for the daily totals
-        // of the last 12 months, added up here: a query per bar took 23 trips to the database.
-        $daily = Sale::where('status', 'completed')->where('created_at', '>=', now()->subMonths(11)->startOfMonth())
+        // Weekly / Monthly / Yearly chart: one query for the daily totals of the last 12 months, added
+        // up here (a query per bar took 23 trips to the database).
+        $daily = Sale::where('status', 'completed')->where('created_at', '>=', $today->subMonths(11)->startOfMonth())
             ->selectRaw('DATE(created_at) as day, SUM(total_amount) as total')->groupBy('day')->pluck('total', 'day')
             ->mapWithKeys(fn ($total, $day) => [(string) $day => (float) $total]);
-        $sumDays = fn ($from, $to) => $daily->filter(fn ($total, $day) => $day >= $from->toDateString() && $day <= $to->toDateString())->sum();
-
-        $weeklyLabels = [];
-        $weeklyData = [];
-        for ($i = 6; $i >= 0; $i--) {
-            $date = now()->subDays($i);
-            $weeklyLabels[] = $date->format('D');
-            $weeklyData[] = (float) ($daily[$date->toDateString()] ?? 0);
-        }
-
-        $monthlyLabels = [];
-        $monthlyData = [];
-        for ($i = 3; $i >= 0; $i--) {
-            $start = now()->subWeeks($i)->startOfWeek();
-            $end = now()->subWeeks($i)->endOfWeek();
-            $monthlyLabels[] = 'Week of ' . $start->format('M j');
-            $monthlyData[] = (float) $sumDays($start, $end);
-        }
-
-        $yearlyLabels = [];
-        $yearlyData = [];
-        for ($i = 11; $i >= 0; $i--) {
-            $month = now()->subMonths($i);
-            $yearlyLabels[] = $month->format('M');
-            $yearlyData[] = (float) $sumDays($month->copy()->startOfMonth(), $month->copy()->endOfMonth());
-        }
-
+        $sumDays = fn ($from, $to) => round($daily->filter(fn ($total, $day) => $day >= $from->toDateString() && $day <= $to->toDateString())->sum(), 2);
+        $days = collect(range(6, 0))->map(fn ($i) => $today->subDays($i));
+        $weeks = collect(range(7, 0))->map(fn ($i) => $today->subWeeks($i)->startOfWeek());
+        $months = collect(range(11, 0))->map(fn ($i) => $today->startOfMonth()->subMonths($i));
         $chartSets = [
-            'weekly' => ['labels' => $weeklyLabels, 'data' => $weeklyData],
-            'monthly' => ['labels' => $monthlyLabels, 'data' => $monthlyData],
-            'yearly' => ['labels' => $yearlyLabels, 'data' => $yearlyData],
+            'weekly' => ['labels' => $days->map->format('D j')->all(), 'data' => $days->map(fn ($d) => $daily[$d->toDateString()] ?? 0)->all()],
+            'monthly' => ['labels' => $weeks->map(fn ($w) => $w->format('M j'))->all(), 'data' => $weeks->map(fn ($w) => $sumDays($w, $w->endOfWeek()))->all()],
+            'yearly' => ['labels' => $months->map->format('M')->all(), 'data' => $months->map(fn ($m) => $sumDays($m, $m->endOfMonth()))->all()],
         ];
 
-        // Who is working now.
-        $onShift = Shift::with('user')->where('status', 'open')->orderBy('opened_at')->get();
-
-        return view('dashboard.index', compact(
-            'todaySales', 'todayTransactions', 'monthSales',
-            'lowStockVariants', 'outOfStockCount', 'lowStockCount', 'totalStockItems',
-            'salesTrend', 'topMovers', 'slowMovers', 'recentSales', 'recentMovements', 'chartSets',
-            'onShift',
-        ));
+        return view('dashboard.index', [
+            'totals' => $totals,
+            'chartSets' => $chartSets,
+            'categories' => $month->byCategory(),
+            'best' => $month->bestSellers(5),
+            'people' => $month->byStaff(),
+            'payments' => $month->payments(),
+            'low' => $low,
+            'outOfStockCount' => $low->where('out', true)->count(),
+            'lowStockCount' => $low->where('out', false)->count(),
+            'recentSales' => Sale::with('user', 'customer')->withSum('items as pieces', 'quantity')->where('status', '!=', 'archived')->latest()->limit(8)->get(),
+            'recentMovements' => InventoryMovement::with('variant.product', 'user')->latest('created_at')->limit(6)->get(),
+            'onShift' => Shift::with('user')->where('status', 'open')->orderBy('opened_at')->get(),
+            'open' => Sale::whereIn('status', ['pending', 'processing'])->selectRaw("SUM(status = 'pending') as pending, SUM(status = 'processing') as processing")->first(),
+        ]);
     }
 }

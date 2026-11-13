@@ -150,9 +150,9 @@
                 @csrf
                 <span class="{{ $step }}">2</span>
                 <div class="min-w-0 flex-1">
-                    <label for="code" class="block text-sm font-medium text-ink mb-2">Type the 6-digit code the app now shows for Marcomedia POS</label>
+                    <p class="block text-sm font-medium text-ink mb-2">Type the 6-digit code the app now shows for Marcomedia POS</p>
                     <div class="flex flex-wrap items-center gap-2">
-                        <input id="code" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456" autofocus class="{{ $codeInput }}">
+                        @include('partials.code-boxes', ['auto' => true, 'focus' => true, 'invalid' => $errors->has('code')])
                         <button type="submit" class="text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-lg px-5 h-11">Turn on</button>
                     </div>
                     @error('code')<p class="text-xs text-red-500 mt-1.5">{{ $message }}</p>@enderror

@@ -13,7 +13,7 @@ use App\Models\Shift;
 use App\Services\Inventory\BackorderService;
 use App\Services\Inventory\BatchInventoryService;
 use App\Services\Inventory\SheetYield;
-use App\Services\Sales\SalePayments;
+use App\Services\Sales\SaleRecorder;
 use App\Services\Sales\SaleVoider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -143,7 +143,7 @@ class POSController extends Controller
     }
 
     // Process the sale/transaction
-    public function store(Request $request, SalePayments $payments)
+    public function store(Request $request, SaleRecorder $recorder)
     {
         $validated = $request->validate([
             'items' => 'required|array|min:1',
@@ -169,156 +169,27 @@ class POSController extends Controller
         ]);
 
         try {
-            return DB::transaction(function () use ($validated, $payments) {
-                $subtotal = 0;
-                $lineItems = [];
-
-                foreach ($validated['items'] as $item) {
-                    $product = Product::findOrFail($item['product_id']);
-                    $variant = !empty($item['product_variant_id'])
-                        ? ProductVariant::findOrFail($item['product_variant_id'])
-                        : null;
-                    if ($variant && $variant->product_id !== $product->id) {
-                        throw new \RuntimeException("{$variant->variant_name} is not a size of {$product->name}. Remove it from the cart and add it again.");
-                    }
-
-                    // Cut from boards or rolls: the size it's charged by, in feet. A standard size
-                    // has its own; a custom size comes from the cart.
-                    $size = $variant ? $this->typeSize($variant) : null;
-                    [$width, $height] = [null, null];
-                    $variantName = $variant?->variant_name;
-                    if (is_array($size)) {
-                        [$width, $height] = [$size[0] / 12, $size[1] / 12];
-                    } elseif ($size === 'custom') {
-                        if (empty($item['width']) || empty($item['height'])) {
-                            throw new \RuntimeException("Enter the width and height for {$product->name} ({$variant->variant_name}).");
-                        }
-                        [$width, $height] = [(float) $item['width'], (float) $item['height']];
-                        $variantName = 'Custom ' . SheetYield::label($width * 12, $height * 12);
-                    }
-
-                    $lineSubtotal = $item['unit_price'] * $item['quantity'];
-                    $subtotal += $lineSubtotal;
-
-                    $lineItems[] = [
-                        'product' => $product,
-                        'variant' => $variant,
-                        'variant_name' => $variantName,
-                        'width' => $width,
-                        'height' => $height,
-                        'quantity' => $item['quantity'],
-                        'unit_price' => $item['unit_price'],
-                        'subtotal' => $lineSubtotal,
-                        'customization_details' => $item['customization_details'] ?? null,
-                    ];
-                }
-
-                $discount = $validated['discount_amount'] ?? 0;
-                if ($discount > $subtotal) {
-                    throw new \RuntimeException('The discount can\'t be more than the subtotal (₱' . number_format($subtotal, 2) . ').');
-                }
-                $total = $subtotal - $discount;
-                $amountPaid = $validated['amount_paid'];
-
-                if ($amountPaid <= 0) {
-                    throw new \RuntimeException('Please enter an amount paid (a full payment or a down payment) before completing the sale.');
-                }
-
-                // A customer typed in at the counter is saved, so the next sale can pick them
-                // from the list. The same name and phone is the same customer.
-                $customerId = $validated['customer_id'] ?? null;
-                if (filled($validated['new_customer_name'] ?? null)) {
-                    $customerId = Customer::firstOrCreate([
-                        'name' => trim($validated['new_customer_name']),
-                        'phone' => filled($validated['new_customer_phone'] ?? null) ? trim($validated['new_customer_phone']) : null,
-                    ])->id;
-                }
-
-                // Saved unpaid, then the counter payment is taken like every payment after it
-                // (SalePayments), so it's the first line of the sale's payment history. Paid in full
-                // moves it on to processing (made, then released: "completed"); a down payment keeps
-                // it pending, with the balance still owed.
-                $sale = Sale::create([
-                    'invoice_number' => Sale::generateInvoiceNumber(),
-                    'customer_id' => $customerId,
-                    'user_id' => Auth::id(),
-                    'shift_id' => Shift::openFor(Auth::id())?->id,
-                    'subtotal' => $subtotal,
-                    'discount_amount' => $discount,
-                    'tax_amount' => 0,
-                    'total_amount' => $total,
-                    'amount_paid' => 0,
-                    'change_amount' => 0,
-                    'payment_method' => $validated['payment_method'],
-                    'status' => $total > 0 ? 'pending' : 'processing',   // all discount: nothing to pay
-                ]);
-                if ($total > 0) {
-                    $payments->record($sale, (float) $amountPaid, $validated['payment_method'], $validated['payment_reference'] ?? null, Auth::user());
-                    $sale->refresh();
-                }
-                $status = $sale->status;
-
-                $backorders = app(BackorderService::class);
-                $onOrder = 0;
-                $tookCount = [];   // stocked sizes that took their count, to warn about any left at 0
-
-                foreach ($lineItems as $line) {
-                    $saleItem = SaleItem::create([
-                        'sale_id' => $sale->id,
-                        'product_id' => $line['product']->id,
-                        'product_variant_id' => $line['variant']?->id,
-                        'item_name' => $line['product']->name,
-                        'variant_name' => $line['variant_name'],
-                        'customization_details' => $line['customization_details'],
-                        'width' => $line['width'],
-                        'height' => $line['height'],
-                        'quantity' => $line['quantity'],
-                        'unit_price' => $line['unit_price'],
-                        'discount' => 0,
-                        'subtotal' => $line['subtotal'],
-                    ]);
-
-                    // Stock is deducted as soon as the sale is placed, even on a down payment: the
-                    // item is reserved for this customer. A stocked item takes its count (stock minus
-                    // damaged); a made-to-order size its discrete materials, from the active batch.
-                    // Out of stock, the line goes on order and takes its stock when it comes in:
-                    // Marcomedia accepts orders even when an item runs out.
-                    if ($backorders->take($saleItem, Auth::id())) {
-                        $onOrder += $line['quantity'];
-                    } elseif ($line['product']->track_inventory && $line['variant']) {
-                        $tookCount[] = $line['variant']->id;
-                    }
-                }
-
-                $message = "Sale {$sale->invoice_number} recorded as " . ucfirst($status) . '.';
-                if ($onOrder > 0) {
-                    $message .= " {$onOrder} " . ($onOrder === 1 ? 'item is' : 'items are') . ' on order: out of stock now, '
-                        . ($onOrder === 1 ? 'it takes its' : 'they take their') . ' stock as soon as it comes in.';
-                }
-                // Taking the last ones leaves a size at 0, never below: say so, so it gets restocked.
-                $emptied = ProductVariant::with('product')->whereIn('id', $tookCount)->get()
-                    ->filter(fn ($v) => $v->sellable_quantity <= 0);
-                $warning = $emptied->isEmpty() ? null : 'Now out of stock: '
-                    . $emptied->map(fn ($v) => "{$v->product->name} ({$v->variant_name})")->implode(', ')
-                    . '. More sales of ' . ($emptied->count() === 1 ? 'it' : 'them') . ' go on order and take their stock when you add it.';
-
-                return redirect()->route('pos.receipt', $sale->id)->with('success', $message)->with('warning', $warning);
-            }, 3);   // tried again if it ran into another sale at the same moment (a database deadlock)
+            [$sale, $onOrder, $emptied] = $recorder->ring($validated, Auth::user());
         } catch (\RuntimeException $e) {
             return back()->withInput()->with('error', $e->getMessage());
         }
+
+        $message = "Sale {$sale->invoice_number} recorded as " . ucfirst($sale->status) . '.';
+        if ($onOrder > 0) {
+            $message .= " {$onOrder} " . ($onOrder === 1 ? 'item is' : 'items are') . ' on order: out of stock now, '
+                . ($onOrder === 1 ? 'it takes its' : 'they take their') . ' stock as soon as it comes in.';
+        }
+        // Taking the last ones leaves a size at 0, never below: say so, so it gets restocked.
+        $warning = $emptied->isEmpty() ? null : 'Now out of stock: '
+            . $emptied->map(fn ($v) => "{$v->product->name} ({$v->variant_name})")->implode(', ')
+            . '. More sales of ' . ($emptied->count() === 1 ? 'it' : 'them') . ' go on order and take their stock when you add it.';
+
+        return redirect()->route('pos.receipt', $sale->id)->with('success', $message)->with('warning', $warning);
     }
 
-    // A type of an item cut from boards or rolls: its size [width, height] in inches, 'custom' for
-    // "Custom size", or null for any other type.
     private function typeSize(ProductVariant $variant)
     {
-        $a = $variant->attributes ?? [];
-        if (! empty($a['custom'])) {
-            return 'custom';
-        }
-
-        return isset($a['width_in'], $a['height_in']) ? [(float) $a['width_in'], (float) $a['height_in']] : null;
+        return SaleRecorder::typeSize($variant);
     }
 
     // The sale's own page: its receipt, every payment made on it, and taking the next one.
