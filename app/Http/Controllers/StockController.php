@@ -554,7 +554,7 @@ class StockController extends Controller
                 ? (int) max(0, min(100, round($active->remaining_quantity / $active->opening_quantity * 100)))
                 : 0;
 
-            return compact('m', 'active', 'sealedStore', 'sealedWarehouse', 'state', 'pct', 'sheet') + [
+            return compact('m', 'active', 'sealedStore', 'sealedWarehouse', 'stock', 'state', 'pct', 'sheet') + [
                 'history' => $history->get($m->id, collect())->take(8),
             ];
         })->sortBy(fn ($c) => [$order[$c['state']], strtolower($c['m']->name)])->values();

@@ -8,13 +8,13 @@
     $tasks = $isCont ? [
         ['package-plus', 'New stock arrived', 'Press <strong>Add stock</strong> on the material and type how much came in.'],
         ['scissors', 'You used some for a job', 'Press <strong>Record use</strong> and type how much you used.'],
-        ['triangle-alert', 'Some got damaged or wasted', 'Press <strong>Report damage</strong> and say what happened.'],
-        ['calculator', 'The number on screen is wrong', 'Press <strong>Fix count</strong> and type what is really there.'],
+        ['triangle-alert', 'Some got damaged or wasted', 'Press <strong>More</strong> on the material, then <strong>Report damage</strong>.'],
+        ['calculator', 'The number on screen is wrong', 'Press <strong>More</strong>, then <strong>Fix count</strong> and type what is really there.'],
     ] : [
         ['package-plus', 'New stock arrived', 'Press <strong>Add stock</strong> on the material and type how many came in.'],
         ['shopping-cart', 'You sold something', 'Nothing to do: the pieces it uses come out by themselves.'],
-        ['triangle-alert', 'Pieces got damaged', 'Press <strong>Report damage</strong> and say what happened.'],
-        ['calculator', 'The number on screen is wrong', 'Press <strong>Fix count</strong> and type how many are really there.'],
+        ['triangle-alert', 'Pieces got damaged', 'Press <strong>More</strong> on the material, then <strong>Report damage</strong>.'],
+        ['calculator', 'The number on screen is wrong', 'Press <strong>More</strong>, then <strong>Fix count</strong> and type how many are really there.'],
     ];
 @endphp
 <div x-data="{

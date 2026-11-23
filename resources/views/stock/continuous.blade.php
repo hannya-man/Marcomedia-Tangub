@@ -33,13 +33,7 @@
         </div>
     @endif
 
-    @include('stock._search')
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        @foreach($cards as $card)
-            @include('stock._card', ['card' => $card, 'kind' => 'continuous'])
-        @endforeach
-    </div>
+    @include('stock._list', ['kind' => 'continuous'])
 
     @include('stock._dialogs', ['kind' => 'continuous'])
 </div>
